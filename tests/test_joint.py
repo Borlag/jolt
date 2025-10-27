@@ -29,6 +29,10 @@ def test_figure76_solution_matches_expected_response():
     computed_forces = [fastener["F [lb]"] for fastener in solution.fasteners_as_dicts()]
     assert computed_forces == pytest.approx(expected_fastener_forces)
 
+    reactions = {(item["Plate"], item["Global node"]): item["Reaction [lb]"] for item in solution.reactions_as_dicts()}
+    assert reactions[("Tripler", 3)] == pytest.approx(-298.1796765066945)
+    assert reactions[("Doubler", 7)] == pytest.approx(-701.8203234933058)
+
     row4 = {item["Plate"]: (item["Bearing [lb]"], item["Bypass [lb]"]) for item in solution.bearing_bypass_as_dicts() if item["Row"] == 4}
     assert row4["Doubler"] == pytest.approx((-358.5903307098407, -60.41065420314609), rel=1e-12)
     assert row4["Skin"] == pytest.approx((-641.4096692901595, 0.0), rel=1e-12)
