@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from dataclasses import asdict, replace
-from typing import Any, Dict, List, Sequence, Tuple, Set
+from dataclasses import replace
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Set, Union
 
 try:  # Optional imports used for the UI only
     import matplotlib.pyplot as plt  # type: ignore
@@ -25,7 +25,15 @@ except Exception as exc:  # pragma: no cover - tests do not require Streamlit
         "The Streamlit interface requires the 'streamlit' package. Install it to launch the app."
     ) from exc
 
-from jolt import FastenerResult, FastenerRow, Joint1D, JointSolution, Plate, figure76_example
+from jolt import (
+    FastenerResult,
+    FastenerRow,
+    Joint1D,
+    JointSolution,
+    JointConfiguration,
+    Plate,
+    figure76_example,
+)
 
 
 st.set_page_config(page_title="JOLT 1D Joint", layout="wide")
@@ -79,20 +87,6 @@ def _resolve_fastener_connections(
         resolved.append(key)
 
     return resolved
-
-
-def _plate_to_dict(plate: Plate) -> Dict[str, Any]:
-    return asdict(plate)
-
-
-def _fastener_to_dict(fastener: FastenerRow) -> Dict[str, Any]:
-    data = asdict(fastener)
-    connections = data.get("connections")
-    if connections is not None:
-        data["connections"] = [list(pair) for pair in connections]
-    return data
-
-
 def _serialize_configuration(
     pitches: Sequence[float],
     plates: Sequence[Plate],
@@ -100,56 +94,35 @@ def _serialize_configuration(
     supports: Sequence[Tuple[int, int, float]],
     label: str,
     unloading: str,
+    point_forces: Optional[Sequence[Tuple[int, int, float]]] = None,
 ) -> Dict[str, Any]:
-    return {
-        "label": label,
-        "unloading": unloading,
-        "pitches": list(pitches),
-        "plates": [_plate_to_dict(plate) for plate in plates],
-        "fasteners": [_fastener_to_dict(fastener) for fastener in fasteners],
-        "supports": [list(item) for item in supports],
-    }
-
-
-def _plate_from_dict(data: Dict[str, Any]) -> Plate:
-    return Plate(
-        name=str(data.get("name", "Plate")),
-        E=float(data.get("E", 0.0)),
-        t=float(data.get("t", 0.0)),
-        first_row=int(data.get("first_row", 1)),
-        last_row=int(data.get("last_row", 1)),
-        A_strip=list(data.get("A_strip", [])),
-        Fx_left=float(data.get("Fx_left", 0.0)),
-        Fx_right=float(data.get("Fx_right", 0.0)),
+    configuration = JointConfiguration(
+        pitches=list(pitches),
+        plates=list(plates),
+        fasteners=list(fasteners),
+        supports=[(int(item[0]), int(item[1]), float(item[2])) for item in supports],
+        point_forces=[
+            (int(item[0]), int(item[1]), float(item[2]))
+            for item in (point_forces or [])
+        ],
+        label=label,
+        unloading=unloading,
     )
+    return configuration.to_dict()
 
 
-def _fastener_from_dict(data: Dict[str, Any]) -> FastenerRow:
-    connections_raw = data.get("connections")
-    connections = None
-    if connections_raw is not None:
-        connections = [
-            (int(pair[0]), int(pair[1]))
-            for pair in connections_raw
-            if isinstance(pair, (list, tuple)) and len(pair) == 2
-        ]
-    k_manual = data.get("k_manual")
-    return FastenerRow(
-        row=int(data.get("row", 1)),
-        D=float(data.get("D", 0.0)),
-        Eb=float(data.get("Eb", 0.0)),
-        nu_b=float(data.get("nu_b", 0.0)),
-        method=str(data.get("method", "Boeing69")),
-        k_manual=float(k_manual) if k_manual is not None else None,
-        connections=connections,
+def _apply_configuration(config: Union[Dict[str, Any], JointConfiguration]) -> JointConfiguration:
+    configuration = (
+        config if isinstance(config, JointConfiguration) else JointConfiguration.from_dict(config)
     )
-
-
-def _load_configuration(config: Dict[str, Any]) -> None:
-    st.session_state.pitches = list(config.get("pitches", []))
-    st.session_state.plates = [_plate_from_dict(item) for item in config.get("plates", [])]
-    st.session_state.fasteners = [_fastener_from_dict(item) for item in config.get("fasteners", [])]
-    st.session_state.supports = [tuple(item) for item in config.get("supports", [])]
+    st.session_state.pitches = configuration.pitches
+    st.session_state.plates = configuration.plates
+    st.session_state.fasteners = configuration.fasteners
+    st.session_state.supports = configuration.supports
+    st.session_state.point_forces = configuration.point_forces
+    st.session_state.config_label = configuration.label or "Case"
+    st.session_state.config_unloading = configuration.unloading
+    return configuration
     st.session_state.config_label = str(config.get("label", "Case"))
     st.session_state.config_unloading = str(config.get("unloading", ""))
 
@@ -215,7 +188,6 @@ def _render_joint_diagram(
 
     node_coords: Dict[Tuple[int, int], Tuple[float, float]] = {}
     segment_midpoints: Dict[Tuple[int, int], Tuple[float, float]] = {}
-    plate_name_to_index: Dict[str, int] = {plate.name: idx for idx, plate in enumerate(plates)}
     reaction_map: Dict[Tuple[int, int], float] = {}
     for reaction in solution.reactions:
         reaction_map[(reaction.plate_id, reaction.local_node)] = reaction.reaction
@@ -473,14 +445,8 @@ def _render_joint_diagram(
         fastener_plot_data: Dict[int, List[Tuple[int, FastenerResult, List[Tuple[float, float]]]]] = defaultdict(list)
         for fast_idx, fastener in enumerate(solution.fasteners):
             row_index = int(fastener.row)
-            interface_names = fastener.interface.split("-", 1)
-            indices: List[int] = []
-            for name in interface_names:
-                idx = plate_name_to_index.get(name.strip())
-                if idx is not None:
-                    indices.append(idx)
             coords: List[Tuple[float, float]] = []
-            for plate_idx in indices:
+            for plate_idx in (fastener.plate_i, fastener.plate_j):
                 if not (0 <= plate_idx < len(plates)):
                     continue
                 plate = plates[plate_idx]
@@ -507,7 +473,12 @@ def _render_joint_diagram(
             fastener_plot_data[row_index].append((fast_idx, fastener, coords))
 
         for row_index, items in fastener_plot_data.items():
-            items.sort(key=lambda entry: entry[1].interface)
+            items.sort(
+                key=lambda entry: (
+                    min(entry[1].plate_i, entry[1].plate_j),
+                    max(entry[1].plate_i, entry[1].plate_j),
+                )
+            )
             count = len(items)
             for position, (fast_idx, fastener, coords) in enumerate(items):
                 y_center = sum(pt[1] for pt in coords) / len(coords)
@@ -515,11 +486,10 @@ def _render_joint_diagram(
                 if count > 1:
                     offset = (position - 0.5 * (count - 1)) * (0.35 * vertical_spacing)
                 x_pos = coords[0][0] + 0.12 * max_pitch
-                label_interface = fastener.interface.replace("-", " ↔ ")
                 ax.text(
                     x_pos,
                     y_center + offset,
-                    f"F{fast_idx + 1} ({label_interface}) = {fastener.force:+.1f} lb",
+                    f"F{fast_idx + 1} = {fastener.force:+.1f} lb",
                     ha="left",
                     va="center",
                     fontsize=8,
@@ -587,6 +557,8 @@ if "config_label" not in st.session_state:
     st.session_state.config_label = "Case 1"
 if "config_unloading" not in st.session_state:
     st.session_state.config_unloading = ""
+if "point_forces" not in st.session_state:
+    st.session_state.point_forces: List[Tuple[int, int, float]] = []
 
 
 # ---------- 2.3 Input panels ----------
@@ -832,6 +804,20 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Saved configurations")
+    uploaded_file = st.file_uploader("Load configuration JSON", type="json", key="cfg_upload")
+    if uploaded_file is not None:
+        try:
+            configuration = JointConfiguration.from_json(uploaded_file)
+        except Exception as exc:  # pragma: no cover - UI feedback
+            st.error(f"Failed to load configuration: {exc}")
+        else:
+            display_name = getattr(uploaded_file, "name", "uploaded")
+            _apply_configuration(configuration)
+            st.session_state["_last_loaded_config"] = configuration.label or display_name
+            st.success(
+                f"Loaded configuration '{configuration.label or display_name}'."
+            )
+            st.experimental_rerun()
     saved_configs = st.session_state.saved_models
     if saved_configs:
         indices = list(range(len(saved_configs)))
@@ -844,10 +830,8 @@ with st.sidebar:
         chosen = saved_configs[selected_idx]
         load_col, delete_col, export_col = st.columns([1, 1, 1])
         if load_col.button("Load", key="load_saved_config"):
-            _load_configuration(chosen)
-            st.session_state.config_label = chosen["label"]
-            st.session_state.config_unloading = chosen.get("unloading", "")
-            st.session_state["_last_loaded_config"] = chosen["label"]
+            configuration = _apply_configuration(chosen)
+            st.session_state["_last_loaded_config"] = configuration.label or chosen["label"]
             st.experimental_rerun()
         if delete_col.button("Delete", key="delete_saved_config"):
             st.session_state.saved_models.pop(selected_idx)
@@ -874,6 +858,11 @@ with st.sidebar:
             st.session_state.fasteners,
             st.session_state.supports,
         ) = load_example_figure76()
+        st.session_state.point_forces = []
+        st.session_state.config_label = "JOLT Figure 76"
+        st.session_state.config_unloading = ""
+        st.session_state["_last_loaded_config"] = "JOLT Figure 76"
+        st.experimental_rerun()
 
 
 # ---------- 2.4 Solution ----------
@@ -884,10 +873,11 @@ pitches = st.session_state.pitches
 plates = st.session_state.plates
 fasteners = st.session_state.fasteners
 supports = st.session_state.supports
+point_forces = st.session_state.point_forces
 
 if st.button("Solve", type="primary"):
     model = Joint1D(pitches=pitches, plates=plates, fasteners=fasteners)
-    solution = model.solve(supports=supports, point_forces=None)
+    solution = model.solve(supports=supports, point_forces=point_forces or None)
 
     if plt is not None:
         tabs = st.tabs(["Scheme", "Displacements", "Loads"])
@@ -1011,6 +1001,7 @@ if st.button("Solve", type="primary"):
             supports=supports,
             label=label,
             unloading=unloading_note,
+            point_forces=st.session_state.get("point_forces", []),
         )
         save_col, download_col = st.columns([1, 1])
         if save_col.button("💾 Save to session", key="save_cfg_button"):

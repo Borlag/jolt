@@ -13,6 +13,7 @@ from .model import (
     ReactionResult,
 )
 from .examples import figure76_example
+from .config import JointConfiguration, load_joint_from_json
 
 __all__ = [
     "boeing69_compliance",
@@ -28,4 +29,6 @@ __all__ = [
     "BearingBypassResult",
     "ReactionResult",
     "figure76_example",
+    "JointConfiguration",
+    "load_joint_from_json",
 ]
