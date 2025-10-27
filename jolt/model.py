@@ -190,24 +190,6 @@ class Joint1D:
         self._dof: Dict[Tuple[int, int], int] = {}
         self._x: Dict[Tuple[int, int], float] = {}
 
-    # --- stiffness helpers --------------------------------------------------------
-    def _axial_stiffness_to_node(self, plate: Plate, local_node: int) -> float:
-        """Return the equivalent axial stiffness from the plate start to ``local_node``."""
-
-        segments = min(max(local_node, 0), plate.segment_count())
-        if segments <= 0:
-            return 0.0
-        compliance = 0.0
-        for segment in range(segments):
-            length = self.pitches[plate.first_row - 1 + segment]
-            area = plate.A_strip[segment]
-            if plate.E <= 0.0 or length <= 0.0 or area <= 0.0:
-                return 0.0
-            compliance += length / (plate.E * area)
-        if compliance <= 0.0:
-            return 0.0
-        return 1.0 / compliance
-
     # --- degree-of-freedom helpers -------------------------------------------------
     def _build_dofs(self) -> int:
         self._dof.clear()
@@ -295,14 +277,6 @@ class Joint1D:
         point_forces = point_forces or []
         ndof = self._build_dofs()
 
-        resolved_supports: List[Tuple[int, int, float]] = []
-        for plate_index, local_node, value in supports:
-            plate = self.plates[plate_index]
-            max_local = plate.segment_count()
-            clamped = max(0, min(local_node, max_local))
-            resolved_supports.append((plate_index, clamped, value))
-        supports = resolved_supports
-
         stiffness_matrix = [[0.0 for _ in range(ndof)] for _ in range(ndof)]
         force_vector = [0.0 for _ in range(ndof)]
 
@@ -361,39 +335,6 @@ class Joint1D:
             displacements[idx] = value
         for idx, value in zip(fixed_dofs, prescribed_values):
             displacements[idx] = value
-
-        # redistribute support reactions according to axial stiffness where applicable
-        reaction_by_support: Dict[Tuple[int, int], float] = {}
-        for plate_index, local_node, _ in supports:
-            dof = self._dof[(plate_index, local_node)]
-            reaction = sum(stiffness_matrix[dof][j] * displacements[j] for j in range(ndof)) - force_vector[dof]
-            reaction_by_support[(plate_index, local_node)] = reaction
-
-        grouped: Dict[int, List[Tuple[int, int, float, float]]] = {}
-        for plate_index, local_node, _ in supports:
-            plate = self.plates[plate_index]
-            global_node = plate.first_row + local_node
-            stiffness = self._axial_stiffness_to_node(plate, local_node)
-            reaction = reaction_by_support[(plate_index, local_node)]
-            grouped.setdefault(global_node, []).append((plate_index, local_node, reaction, stiffness))
-
-        for items in grouped.values():
-            valid = [item for item in items if item[3] > 0.0]
-            if len(valid) < 2:
-                continue
-            total_reaction = sum(item[2] for item in valid)
-            total_stiffness = sum(item[3] for item in valid)
-            if abs(total_reaction) <= 1e-9 or total_stiffness <= 0.0:
-                continue
-            for plate_index, local_node, actual, stiffness in valid:
-                weight = stiffness / total_stiffness
-                desired = total_reaction * weight
-                delta = actual - desired
-                if abs(delta) <= 1e-9:
-                    continue
-                dof = self._dof[(plate_index, local_node)]
-                force_vector[dof] += delta
-                reaction_by_support[(plate_index, local_node)] = desired
 
         fastener_results: List[FastenerResult] = []
         for dof_i, dof_j, stiffness, row_index, plate_i, plate_j, compliance in springs:
@@ -498,9 +439,7 @@ class Joint1D:
         reaction_results: List[ReactionResult] = []
         for plate_index, local_node, _ in supports:
             dof = self._dof[(plate_index, local_node)]
-            reaction = reaction_by_support.get((plate_index, local_node))
-            if reaction is None:
-                reaction = sum(stiffness_matrix[dof][j] * displacements[j] for j in range(ndof)) - force_vector[dof]
+            reaction = sum(stiffness_matrix[dof][j] * displacements[j] for j in range(ndof)) - force_vector[dof]
             plate = self.plates[plate_index]
             global_node = plate.first_row + local_node
             reaction_results.append(
