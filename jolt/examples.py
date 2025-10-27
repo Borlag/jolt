@@ -1,6 +1,7 @@
 """Reference model configurations."""
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import List, Tuple
 
 from .model import FastenerRow, Plate
@@ -27,4 +28,20 @@ def figure76_example() -> Tuple[List[float], List[Plate], List[FastenerRow], Lis
     return pitches, plates, fasteners, supports
 
 
-__all__ = ["figure76_example"]
+def figure76_beam_idealized_example() -> Tuple[List[float], List[Plate], List[FastenerRow], List[Tuple[int, int, float]]]:
+    """Return the configuration for the beam-idealized walkthrough."""
+
+    pitches, plates, fasteners, supports = figure76_example()
+    beam_plates = [
+        replace(
+            plate,
+            Fx_left=0.0,
+            Fx_right=1000.0 if plate.name == "Skin" else 0.0,
+        )
+        for plate in plates
+    ]
+    beam_fasteners = [replace(fastener) for fastener in fasteners]
+    return pitches, beam_plates, beam_fasteners, list(supports)
+
+
+__all__ = ["figure76_example", "figure76_beam_idealized_example"]

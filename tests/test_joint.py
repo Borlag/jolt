@@ -10,6 +10,7 @@ from jolt import (
     boeing69_compliance,
     figure76_example,
     load_joint_from_json,
+    figure76_beam_idealized_example,
 )
 
 
@@ -49,6 +50,38 @@ def test_figure76_solution_matches_expected_response():
 
     tripler_left = next(item for item in solution.nodes_as_dicts() if item["Plate"] == "Tripler" and item["local_node"] == 0)
     assert tripler_left["u [in]"] == pytest.approx(0.00029931643381921725)
+
+
+def test_figure76_beam_idealized_solution_matches_expected_response():
+    pitches, plates, fasteners, supports = figure76_beam_idealized_example()
+    model = Joint1D(pitches=pitches, plates=plates, fasteners=fasteners)
+    solution = model.solve(supports=supports)
+
+    assert len(solution.displacements) == 14
+    assert max(abs(u) for u in solution.displacements) == pytest.approx(0.004627497645123256)
+
+    expected_fastener_forces = [
+        -31.489973916386152,
+        -47.46584642994078,
+        -87.52266335222045,
+        -130.50242463533144,
+        -153.2508904851932,
+        -249.76126662459467,
+        -466.48541825488087,
+    ]
+    computed_forces = [fastener["F [lb]"] for fastener in solution.fasteners_as_dicts()]
+    assert computed_forces == pytest.approx(expected_fastener_forces)
+
+    reactions = {(item["Plate"], item["Global node"]): item["Reaction [lb]"] for item in solution.reactions_as_dicts()}
+    assert reactions[("Tripler", 3)] == pytest.approx(-166.4784836985474)
+    assert reactions[("Doubler", 7)] == pytest.approx(-833.5215163014527)
+
+    row4 = {item["Plate"]: (item["Bearing [lb]"], item["Bypass [lb]"]) for item in solution.bearing_bypass_as_dicts() if item["Row"] == 4}
+    assert row4["Doubler"] == pytest.approx((-130.50242463533175, 35.97605906321575), rel=1e-12)
+    assert row4["Skin"] == pytest.approx((130.5024246353314, 0.0), rel=1e-12)
+
+    tripler_left = next(item for item in solution.nodes_as_dicts() if item["Plate"] == "Tripler" and item["local_node"] == 0)
+    assert tripler_left["u [in]"] == pytest.approx(0.00016711315349207296)
 
 
 def test_fastener_custom_interfaces():
