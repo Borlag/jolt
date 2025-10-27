@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from dataclasses import asdict, replace
 from typing import Any, Dict, List, Sequence, Tuple, Set
 
@@ -24,7 +25,7 @@ except Exception as exc:  # pragma: no cover - tests do not require Streamlit
         "The Streamlit interface requires the 'streamlit' package. Install it to launch the app."
     ) from exc
 
-from jolt import FastenerRow, Joint1D, JointSolution, Plate, figure76_example
+from jolt import FastenerResult, FastenerRow, Joint1D, JointSolution, Plate, figure76_example
 
 
 st.set_page_config(page_title="JOLT 1D Joint", layout="wide")
@@ -165,6 +166,10 @@ def _bearing_table(solution: JointSolution) -> List[dict]:
     return solution.bearing_bypass_as_dicts()
 
 
+def _reaction_table(solution: JointSolution) -> List[dict]:
+    return solution.reactions_as_dicts()
+
+
 def _render_joint_diagram(
     pitches: Sequence[float],
     plates: Sequence[Plate],
@@ -211,6 +216,9 @@ def _render_joint_diagram(
     node_coords: Dict[Tuple[int, int], Tuple[float, float]] = {}
     segment_midpoints: Dict[Tuple[int, int], Tuple[float, float]] = {}
     plate_name_to_index: Dict[str, int] = {plate.name: idx for idx, plate in enumerate(plates)}
+    reaction_map: Dict[Tuple[int, int], float] = {}
+    for reaction in solution.reactions:
+        reaction_map[(reaction.plate_id, reaction.local_node)] = reaction.reaction
 
     for xi in global_nodes:
         ax.axvline(
@@ -363,6 +371,8 @@ def _render_joint_diagram(
         if coord is None:
             continue
         x_node, y_node = coord
+        global_node = plates[plate_idx].first_row + local_node
+        reaction = reaction_map.get((plate_idx, local_node))
         ax.plot(
             [x_node, x_node],
             [y_node, y_node - 0.35 * vertical_spacing],
@@ -381,11 +391,22 @@ def _render_joint_diagram(
         ax.text(
             x_node,
             y_node - 0.65 * vertical_spacing,
-            f"S{s_idx}: {plates[plate_idx].name} n{local_node}\n u={value:+.3f} in",
+            (
+                f"S{s_idx}: {plates[plate_idx].name} n{global_node}\n"
+                f"u={value:+.3f} in"
+                + (f"\nR={reaction:+.1f} lb" if reaction is not None else "")
+            ),
             ha="center",
             va="top",
             fontsize=8,
             color="tab:green",
+            bbox=dict(
+                facecolor="white",
+                alpha=0.9,
+                edgecolor="tab:green",
+                linewidth=0.5,
+                boxstyle="round,pad=0.2",
+            ),
         )
 
     if mode == "displacements":
@@ -433,15 +454,23 @@ def _render_joint_diagram(
             x_mid, y_mid = coord
             ax.text(
                 x_mid,
-                y_mid + 0.32 * vertical_spacing,
+                y_mid + 0.26 * vertical_spacing,
                 f"{bar.axial_force:+.1f} lb",
                 ha="center",
                 va="bottom",
                 fontsize=8,
                 color="tab:blue",
                 fontweight="bold",
+                bbox=dict(
+                    facecolor="white",
+                    alpha=0.9,
+                    edgecolor="tab:blue",
+                    linewidth=0.5,
+                    boxstyle="round,pad=0.2",
+                ),
             )
 
+        fastener_plot_data: Dict[int, List[Tuple[int, FastenerResult, List[Tuple[float, float]]]]] = defaultdict(list)
         for fast_idx, fastener in enumerate(solution.fasteners):
             row_index = int(fastener.row)
             interface_names = fastener.interface.split("-", 1)
@@ -463,19 +492,47 @@ def _render_joint_diagram(
             if len(coords) < 2:
                 continue
             coords.sort(key=lambda pt: pt[1], reverse=True)
-            x_pos = coords[0][0]
-            y_label = 0.5 * (coords[0][1] + coords[1][1])
-            label_interface = fastener.interface.replace("-", " ↔ ")
-            ax.text(
-                x_pos + 0.08 * max_pitch,
-                y_label,
-                f"F{fast_idx + 1} ({label_interface}) = {fastener.force:+.1f} lb",
-                ha="left",
-                va="center",
-                fontsize=8,
+            x_val = coords[0][0]
+            y_vals = [pt[1] for pt in coords]
+            ax.plot(
+                [x_val, x_val],
+                y_vals,
+                ls="--",
                 color="tab:purple",
-                fontweight="bold",
+                lw=1.6,
+                marker="o",
+                markersize=4,
+                zorder=4,
             )
+            fastener_plot_data[row_index].append((fast_idx, fastener, coords))
+
+        for row_index, items in fastener_plot_data.items():
+            items.sort(key=lambda entry: entry[1].interface)
+            count = len(items)
+            for position, (fast_idx, fastener, coords) in enumerate(items):
+                y_center = sum(pt[1] for pt in coords) / len(coords)
+                offset = 0.0
+                if count > 1:
+                    offset = (position - 0.5 * (count - 1)) * (0.35 * vertical_spacing)
+                x_pos = coords[0][0] + 0.12 * max_pitch
+                label_interface = fastener.interface.replace("-", " ↔ ")
+                ax.text(
+                    x_pos,
+                    y_center + offset,
+                    f"F{fast_idx + 1} ({label_interface}) = {fastener.force:+.1f} lb",
+                    ha="left",
+                    va="center",
+                    fontsize=8,
+                    color="tab:purple",
+                    fontweight="bold",
+                    bbox=dict(
+                        facecolor="white",
+                        alpha=0.92,
+                        edgecolor="tab:purple",
+                        linewidth=0.5,
+                        boxstyle="round,pad=0.2",
+                    ),
+                )
 
     ax.set_xlabel("x [in]")
     ax.set_yticks([y_levels[idx] for idx in range(len(plates))])
@@ -862,6 +919,20 @@ if st.button("Solve", type="primary"):
     else:  # pragma: no cover
         st.table(fastener_dicts)
 
+    reaction_dicts = _reaction_table(solution)
+    df_react = None
+    if reaction_dicts:
+        st.subheader("Support reactions")
+        if pd is not None:
+            df_react = pd.DataFrame(reaction_dicts)
+            st.dataframe(
+                df_react.style.format({"Reaction [lb]": "{:+.2f}"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:  # pragma: no cover
+            st.table(reaction_dicts)
+
     st.subheader("Nodes")
     node_dicts = _node_table(solution)
     if pd is not None:
@@ -916,6 +987,13 @@ if st.button("Solve", type="primary"):
             file_name="bearing_bypass.csv",
             mime="text/csv",
         )
+        if df_react is not None:
+            st.download_button(
+                "Export reactions CSV",
+                data=df_react.to_csv(index=False).encode("utf-8"),
+                file_name="reactions.csv",
+                mime="text/csv",
+            )
 
     st.divider()
     with st.expander("Save / export configuration", expanded=False):

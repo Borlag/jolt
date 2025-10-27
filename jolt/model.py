@@ -90,6 +90,18 @@ class BearingBypassResult:
 
 
 @dataclass
+class ReactionResult:
+    plate_id: int
+    plate_name: str
+    local_node: int
+    global_node: int
+    reaction: float
+
+    def as_dict(self) -> Dict[str, float]:
+        return asdict(self)
+
+
+@dataclass
 class JointSolution:
     displacements: List[float]
     stiffness_matrix: List[List[float]]
@@ -98,6 +110,7 @@ class JointSolution:
     bearing_bypass: List[BearingBypassResult]
     nodes: List[NodeResult]
     bars: List[BarResult]
+    reactions: List[ReactionResult]
     dof_map: Dict[Tuple[int, int], int]
 
     def fasteners_as_dicts(self) -> List[Dict[str, float]]:
@@ -151,6 +164,18 @@ class JointSolution:
                 "Bypass [lb]": item.bypass,
             }
             for item in self.bearing_bypass
+        ]
+
+    def reactions_as_dicts(self) -> List[Dict[str, float]]:
+        return [
+            {
+                "plate_id": reaction.plate_id,
+                "Plate": reaction.plate_name,
+                "local_node": reaction.local_node,
+                "Global node": reaction.global_node,
+                "Reaction [lb]": reaction.reaction,
+            }
+            for reaction in self.reactions
         ]
 
 
@@ -386,7 +411,7 @@ class Joint1D:
                         thickness=plate.t,
                         bypass_area=bypass_area,
                     )
-                )
+            )
 
         bar_results: List[BarResult] = []
         for plate_index, plate in enumerate(self.plates):
@@ -409,6 +434,22 @@ class Joint1D:
                     )
                 )
 
+        reaction_results: List[ReactionResult] = []
+        for plate_index, local_node, _ in supports:
+            dof = self._dof[(plate_index, local_node)]
+            reaction = sum(stiffness_matrix[dof][j] * displacements[j] for j in range(ndof)) - force_vector[dof]
+            plate = self.plates[plate_index]
+            global_node = plate.first_row + local_node
+            reaction_results.append(
+                ReactionResult(
+                    plate_id=plate_index,
+                    plate_name=plate.name,
+                    local_node=local_node,
+                    global_node=global_node,
+                    reaction=reaction,
+                )
+            )
+
         return JointSolution(
             displacements=displacements,
             stiffness_matrix=stiffness_matrix,
@@ -417,6 +458,7 @@ class Joint1D:
             bearing_bypass=bearing_results,
             nodes=node_results,
             bars=bar_results,
+            reactions=reaction_results,
             dof_map=dict(self._dof),
         )
 
@@ -428,6 +470,7 @@ __all__ = [
     "NodeResult",
     "BarResult",
     "BearingBypassResult",
+    "ReactionResult",
     "JointSolution",
     "Joint1D",
 ]
