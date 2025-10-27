@@ -160,11 +160,15 @@ with st.sidebar:
     for idx, (plate_idx, local_node, value) in enumerate(st.session_state.supports):
         with st.container():
             c1, c2, c3, c4 = st.columns([2, 2, 2, 1])
+            max_plate_idx = max(0, len(st.session_state.plates) - 1)
+            clamped_plate_idx = min(max(int(plate_idx), 0), max_plate_idx)
             plate_idx = c1.number_input(
-                f"Support {idx} — Plate index (0..)", 0, max(0, len(st.session_state.plates) - 1), int(plate_idx), key=f"sp_pi_{idx}"
+                f"Support {idx} — Plate index (0..)", 0, max_plate_idx, clamped_plate_idx, key=f"sp_pi_{idx}"
             )
-            segments = st.session_state.plates[int(plate_idx)].last_row - st.session_state.plates[int(plate_idx)].first_row + 1
-            local_node = c2.number_input("Local node (0..nSeg)", 0, segments, int(local_node), key=f"sp_ln_{idx}")
+            selected_plate = st.session_state.plates[int(plate_idx)]
+            segments = selected_plate.last_row - selected_plate.first_row + 1
+            clamped_local = min(max(int(local_node), 0), segments)
+            local_node = c2.number_input("Local node (0..nSeg)", 0, segments, clamped_local, key=f"sp_ln_{idx}")
             value = c3.number_input("u [in]", -1.0, 1.0, float(value), key=f"sp_val_{idx}", step=0.001, format="%.3f")
             st.session_state.supports[idx] = (int(plate_idx), int(local_node), float(value))
             if c4.button("✖", key=f"sp_rm_{idx}"):
