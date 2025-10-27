@@ -10,7 +10,7 @@ from .model import FastenerRow, Plate
 def figure76_example() -> Tuple[List[float], List[Plate], List[FastenerRow], List[Tuple[int, int, float]]]:
     """Return the configuration shown in the original Figure 76 screenshot."""
 
-    pitches = [1.128] * 7
+    pitches = [1.128] * 6
     E_sheet = 1.05e7
     E_bolt = 1.04e7
     nu_bolt = 0.30
@@ -25,8 +25,8 @@ def figure76_example() -> Tuple[List[float], List[Plate], List[FastenerRow], Lis
         for row in range(1, 8)
     ]
     supports = [
-        (0, 2, 0.0),
-        (1, 6, 0.0),
+        (0, 5, 0.0),
+        (1, 5, 0.0),
     ]
     return pitches, plates, fasteners, supports
 
