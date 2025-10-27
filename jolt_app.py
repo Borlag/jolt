@@ -484,8 +484,8 @@ def _render_joint_diagram(
                 y_center = sum(pt[1] for pt in coords) / len(coords)
                 offset = 0.0
                 if count > 1:
-                    offset = (position - 0.5 * (count - 1)) * (0.35 * vertical_spacing)
-                x_pos = coords[0][0] + 0.12 * max_pitch
+                    offset = (position - 0.5 * (count - 1)) * (0.6 * vertical_spacing)
+                x_pos = coords[0][0] + 0.2 * max_pitch
                 ax.text(
                     x_pos,
                     y_center + offset,
@@ -817,7 +817,7 @@ with st.sidebar:
             st.success(
                 f"Loaded configuration '{configuration.label or display_name}'."
             )
-            st.session_state["cfg_upload"] = None
+            st.session_state.pop("cfg_upload", None)
             st.rerun()
     saved_configs = st.session_state.saved_models
     if saved_configs:
