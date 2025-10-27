@@ -69,6 +69,24 @@ with st.sidebar:
             st.session_state.pitches.extend([last] * (n_rows - len(st.session_state.pitches)))
         else:
             st.session_state.pitches = st.session_state.pitches[:n_rows]
+
+        # Keep plate definitions consistent with the new number of rows so that
+        # widgets never receive values outside their allowed ranges. This also
+        # avoids Streamlit complaining about default values being greater than
+        # the selected maximum when the user reduces the number of rows.
+        for plate in st.session_state.plates:
+            plate.first_row = max(1, min(int(plate.first_row), n_rows))
+            plate.last_row = max(plate.first_row, min(int(plate.last_row), n_rows))
+            segments = plate.last_row - plate.first_row + 1
+            if len(plate.A_strip) != segments:
+                default_area = plate.A_strip[0] if plate.A_strip else 0.05
+                plate.A_strip = [default_area] * segments
+
+        for fastener in st.session_state.fasteners:
+            if n_rows <= 0:
+                fastener.row = 1
+            else:
+                fastener.row = max(1, min(int(fastener.row), n_rows))
     cols = st.columns(2)
     with cols[0]:
         same_pitch = st.checkbox("All pitches equal", value=True)
@@ -91,8 +109,17 @@ with st.sidebar:
             plate.E = c2.number_input("E [psi]", 1e5, 5e8, plate.E, key=f"pl_E_{idx}", step=1e5, format="%.0f")
             plate.t = c3.number_input("t [in]", 0.001, 2.0, plate.t, key=f"pl_t_{idx}", step=0.001, format="%.3f")
             d1, d2, _ = st.columns(3)
-            plate.first_row = int(d1.number_input("First row", 1, n_rows, plate.first_row, key=f"pl_fr_{idx}"))
-            plate.last_row = int(d2.number_input("Last row", 1, n_rows, plate.last_row, key=f"pl_lr_{idx}"))
+            # The values were clamped right after the number of rows changed so
+            # that the default values here are always valid. We still apply the
+            # min/max constraints to guarantee the relationship first_row ≤ last_row.
+            first_row_value = max(1, min(int(plate.first_row), n_rows))
+            last_row_value = max(first_row_value, min(int(plate.last_row), n_rows))
+            plate.first_row = int(
+                d1.number_input("First row", 1, n_rows, first_row_value, key=f"pl_fr_{idx}")
+            )
+            plate.last_row = int(
+                d2.number_input("Last row", plate.first_row, n_rows, last_row_value, key=f"pl_lr_{idx}")
+            )
             st.write(f"Segments = {plate.last_row - plate.first_row + 1}")
             segments = plate.last_row - plate.first_row + 1
             if len(plate.A_strip) != segments:
@@ -234,6 +261,14 @@ if st.button("Solve", type="primary"):
         for xi in global_nodes:
             ax.axvline(x=xi, ymin=0.05, ymax=0.95, ls=":", lw=0.6, color="0.8")
 
+        if len(global_nodes) >= 2:
+            row_centers = [(global_nodes[i] + global_nodes[i + 1]) / 2.0 for i in range(len(global_nodes) - 1)]
+            top_axis = ax.secondary_xaxis("top")
+            top_axis.set_xticks(row_centers)
+            top_axis.set_xticklabels([f"Row {i + 1}" for i in range(len(row_centers))])
+            top_axis.tick_params(axis="x", labelrotation=0, labelsize=8)
+            top_axis.set_xlabel("Fastener rows")
+
         node_coords: Dict[Tuple[int, int], Tuple[float, float]] = {}
         max_pitch = max(pitches) if pitches else 1.0
         arrow_length = max(0.3, 0.35 * max_pitch)
@@ -329,8 +364,16 @@ if st.button("Solve", type="primary"):
             attachments.sort(key=lambda item: item[1], reverse=True)
             xs_attach = [item[0] for item in attachments]
             ys_attach = [item[1] for item in attachments]
-            ax.plot(xs_attach, ys_attach, ls="--", color="tab:purple", lw=1.5, zorder=4)
-            ax.scatter(xs_attach, ys_attach, c="tab:purple", s=40, zorder=5)
+            ax.plot(
+                xs_attach,
+                ys_attach,
+                ls="--",
+                color="tab:purple",
+                lw=1.5,
+                marker="o",
+                markersize=4,
+                zorder=4,
+            )
             ax.text(
                 sum(xs_attach) / len(xs_attach),
                 max(ys_attach) + 18,
@@ -346,6 +389,7 @@ if st.button("Solve", type="primary"):
             ax.set_yticks([y_levels[i] for i in range(len(plates))])
             ax.set_yticklabels([plate.name for plate in plates])
         ax.set_ylim(min(y_levels.values(), default=0.0) - 80.0, 60.0)
+        ax.margins(x=0.05)
         handles, labels = ax.get_legend_handles_labels()
         if Line2D is not None:
             extra_handles = [
@@ -367,7 +411,11 @@ if st.button("Solve", type="primary"):
     fastener_dicts = solution.fasteners_as_dicts()
     if pd is not None:
         df_fast = pd.DataFrame(fastener_dicts)
-        st.dataframe(df_fast.style.format({"CF [in/lb]": "{:.3e}", "k [lb/in]": "{:.3e}", "F [lb]": "{:.2f}"}))
+        st.dataframe(
+            df_fast.style.format({"CF [in/lb]": "{:.3e}", "k [lb/in]": "{:.3e}", "F [lb]": "{:.2f}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
     else:  # pragma: no cover
         st.table(fastener_dicts)
 
@@ -384,7 +432,9 @@ if st.button("Solve", type="primary"):
                     "t [in]": "{:.3f}",
                     "Bypass Area [in^2]": "{:.3f}",
                 }
-            )
+            ),
+            use_container_width=True,
+            hide_index=True,
         )
     else:  # pragma: no cover
         st.table(node_dicts)
@@ -393,7 +443,11 @@ if st.button("Solve", type="primary"):
     bar_dicts = _bar_table(solution)
     if pd is not None:
         df_bars = pd.DataFrame(bar_dicts)
-        st.dataframe(df_bars.style.format({"Force [lb]": "{:.2f}", "k_bar [lb/in]": "{:.3e}", "E [psi]": "{:.3e}"}))
+        st.dataframe(
+            df_bars.style.format({"Force [lb]": "{:.2f}", "k_bar [lb/in]": "{:.3e}", "E [psi]": "{:.3e}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
     else:  # pragma: no cover
         st.table(bar_dicts)
 
@@ -401,7 +455,11 @@ if st.button("Solve", type="primary"):
     bearing_dicts = _bearing_table(solution)
     if pd is not None:
         df_bb = pd.DataFrame(bearing_dicts)
-        st.dataframe(df_bb.style.format({"Bearing [lb]": "{:.2f}", "Bypass [lb]": "{:.2f}"}))
+        st.dataframe(
+            df_bb.style.format({"Bearing [lb]": "{:.2f}", "Bypass [lb]": "{:.2f}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
     else:  # pragma: no cover
         st.table(bearing_dicts)
 
