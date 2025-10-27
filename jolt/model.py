@@ -22,7 +22,7 @@ class Plate:
     Fx_right: float = 0.0
 
     def segment_count(self) -> int:
-        return self.last_row - self.first_row + 1
+        return max(0, self.last_row - self.first_row)
 
 
 @dataclass
@@ -169,9 +169,11 @@ class Joint1D:
         self._x.clear()
         ndof = 0
         for plate_index, plate in enumerate(self.plates):
-            x0 = sum(self.pitches[: plate.first_row - 1])
+            start_index = max(plate.first_row - 1, 0)
+            x0 = sum(self.pitches[:start_index])
             xs = [x0]
-            for segment_index in range(plate.first_row - 1, plate.last_row):
+            end_index = min(max(plate.last_row - 1, start_index), len(self.pitches))
+            for segment_index in range(start_index, end_index):
                 xs.append(xs[-1] + self.pitches[segment_index])
             for local_node, position in enumerate(xs):
                 self._dof[(plate_index, local_node)] = ndof

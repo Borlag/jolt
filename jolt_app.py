@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Dict, List, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 try:  # Optional imports used for the UI only
     import matplotlib.pyplot as plt  # type: ignore
@@ -41,6 +41,319 @@ def _bearing_table(solution: JointSolution) -> List[dict]:
     return solution.bearing_bypass_as_dicts()
 
 
+def _render_joint_diagram(
+    pitches: Sequence[float],
+    plates: Sequence[Plate],
+    fasteners: Sequence[FastenerRow],
+    supports: Sequence[Tuple[int, int, float]],
+    solution: JointSolution,
+    mode: str = "scheme",
+):
+    if plt is None:
+        raise RuntimeError("Matplotlib is required to render the joint diagram")
+
+    max_pitch = max(pitches) if pitches else 1.0
+    vertical_spacing = 1.6
+    fig_height = 2.8 + vertical_spacing * max(len(plates) - 1, 0)
+    fig, ax = plt.subplots(figsize=(12, fig_height))
+
+    ax.set_facecolor("white")
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    global_nodes: List[float] = [0.0]
+    for pitch in pitches:
+        global_nodes.append(global_nodes[-1] + pitch)
+
+    if global_nodes:
+        margin = 0.12 * max_pitch
+        ax.set_xlim(global_nodes[0] - margin, global_nodes[-1] + margin)
+
+    y_levels: Dict[int, float] = {
+        idx: (len(plates) - idx - 1) * vertical_spacing for idx in range(len(plates))
+    }
+
+    node_coords: Dict[Tuple[int, int], Tuple[float, float]] = {}
+    segment_midpoints: Dict[Tuple[int, int], Tuple[float, float]] = {}
+
+    for xi in global_nodes:
+        ax.axvline(
+            xi,
+            color="0.85",
+            linewidth=0.8,
+            linestyle="--",
+            zorder=1,
+        )
+
+    top_axis = ax.secondary_xaxis("top") if len(global_nodes) >= 2 else None
+    if top_axis is not None:
+        centers = [
+            0.5 * (global_nodes[i] + global_nodes[i + 1])
+            for i in range(len(global_nodes) - 1)
+        ]
+        top_axis.set_xticks(centers)
+        top_axis.set_xticklabels([f"Row {i + 1}" for i in range(len(centers))])
+        top_axis.tick_params(axis="x", labelsize=9)
+        top_axis.set_xlabel("Fastener rows")
+
+    legend_handles: List = []
+    legend_labels: List[str] = []
+
+    for plate_idx, plate in enumerate(plates):
+        segments = plate.segment_count()
+        if segments <= 0:
+            continue
+
+        start_index = max(plate.first_row - 1, 0)
+        end_index = min(max(plate.last_row - 1, start_index), len(pitches))
+        x0 = sum(pitches[:start_index])
+        coords: List[float] = [x0]
+        for seg_idx in range(start_index, end_index):
+            if seg_idx >= len(pitches):
+                break
+            coords.append(coords[-1] + pitches[seg_idx])
+        if len(coords) < 2:
+            continue
+
+        y = y_levels[plate_idx]
+        ys = [y] * len(coords)
+        (line,) = ax.plot(coords, ys, lw=2.2, label=plate.name)
+        legend_handles.append(line)
+        legend_labels.append(plate.name)
+
+        for local_node, x_node in enumerate(coords):
+            node_coords[(plate_idx, local_node)] = (x_node, y)
+            global_row = plate.first_row + local_node
+            ax.scatter(x_node, y, s=46, c="white", edgecolors="black", zorder=5)
+            ax.text(
+                x_node,
+                y + 0.22 * vertical_spacing,
+                f"n{plate.first_row + local_node}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
+
+        for segment in range(len(coords) - 1):
+            x_mid = 0.5 * (coords[segment] + coords[segment + 1])
+            segment_midpoints[(plate_idx, segment)] = (x_mid, y)
+
+        if abs(plate.Fx_left) > 0.0:
+            direction = 1 if plate.Fx_left >= 0 else -1
+            start_x = coords[0]
+            ax.annotate(
+                "",
+                xy=(start_x + direction * 0.6 * max_pitch, y),
+                xytext=(start_x, y),
+                arrowprops=dict(arrowstyle="<|-", color="tab:red", lw=2.2),
+            )
+            ax.scatter(start_x, y, marker="s", s=70, c="tab:red", zorder=6)
+            ax.text(
+                start_x + direction * 0.65 * max_pitch,
+                y + 0.55 * vertical_spacing,
+                f"{plate.Fx_left:+.0f} lb",
+                ha="left" if direction >= 0 else "right",
+                va="bottom",
+                fontsize=9,
+                color="tab:red",
+                fontweight="bold",
+            )
+
+        if abs(plate.Fx_right) > 0.0:
+            direction = 1 if plate.Fx_right >= 0 else -1
+            end_x = coords[-1]
+            ax.annotate(
+                "",
+                xy=(end_x + direction * 0.6 * max_pitch, y),
+                xytext=(end_x, y),
+                arrowprops=dict(arrowstyle="<|-", color="tab:red", lw=2.2),
+            )
+            ax.scatter(end_x, y, marker="s", s=70, c="tab:red", zorder=6)
+            ax.text(
+                end_x + direction * 0.65 * max_pitch,
+                y + 0.55 * vertical_spacing,
+                f"{plate.Fx_right:+.0f} lb",
+                ha="left" if direction >= 0 else "right",
+                va="bottom",
+                fontsize=9,
+                color="tab:red",
+                fontweight="bold",
+            )
+
+    for fast_idx, fastener in enumerate(fasteners):
+        row_index = int(fastener.row)
+        attachments: List[Tuple[float, float]] = []
+        for plate_idx, plate in enumerate(plates):
+            if plate.first_row <= row_index <= plate.last_row:
+                local = row_index - plate.first_row
+                coord = node_coords.get((plate_idx, local))
+                if coord is not None:
+                    attachments.append(coord)
+        if len(attachments) < 2:
+            continue
+        attachments.sort(key=lambda pt: pt[1], reverse=True)
+        x_vals = [pt[0] for pt in attachments]
+        y_vals = [pt[1] for pt in attachments]
+        ax.plot(
+            [x_vals[0]] * len(y_vals),
+            y_vals,
+            ls="--",
+            color="tab:purple",
+            lw=1.6,
+            marker="o",
+            markersize=4,
+            zorder=4,
+        )
+        ax.text(
+            x_vals[0],
+            y_vals[0] + 0.45 * vertical_spacing,
+            f"F{fast_idx + 1} @ n{row_index}",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="tab:purple",
+        )
+
+    for s_idx, (plate_idx, local_node, value) in enumerate(supports):
+        coord = node_coords.get((plate_idx, local_node))
+        if coord is None:
+            continue
+        x_node, y_node = coord
+        ax.plot(
+            [x_node, x_node],
+            [y_node, y_node - 0.35 * vertical_spacing],
+            color="tab:green",
+            lw=2.0,
+            zorder=4,
+        )
+        ax.scatter(
+            x_node,
+            y_node - 0.35 * vertical_spacing,
+            marker="v",
+            s=100,
+            c="tab:green",
+            zorder=5,
+        )
+        ax.text(
+            x_node,
+            y_node - 0.65 * vertical_spacing,
+            f"S{s_idx}: {plates[plate_idx].name} n{local_node}\n u={value:+.3f} in",
+            ha="center",
+            va="top",
+            fontsize=8,
+            color="tab:green",
+        )
+
+    if mode == "displacements":
+        node_displacements: Dict[Tuple[int, int], float] = {}
+        max_disp = 0.0
+        for (plate_idx, local_node), coord in node_coords.items():
+            dof = solution.dof_map.get((plate_idx, local_node))
+            if dof is None:
+                continue
+            disp = solution.displacements[dof]
+            node_displacements[(plate_idx, local_node)] = disp
+            max_disp = max(max_disp, abs(disp))
+
+        scale = 0.0
+        if max_disp > 0:
+            scale = 0.55 * max_pitch / max_disp
+
+        for (plate_idx, local_node), (x_node, y_node) in node_coords.items():
+            disp = node_displacements.get((plate_idx, local_node))
+            if disp is None:
+                continue
+            target_x = x_node + disp * scale
+            ax.annotate(
+                "",
+                xy=(target_x, y_node + 0.1 * vertical_spacing),
+                xytext=(x_node, y_node + 0.1 * vertical_spacing),
+                arrowprops=dict(arrowstyle="->", color="tab:orange", lw=1.6),
+            )
+            ax.text(
+                x_node,
+                y_node + 0.35 * vertical_spacing,
+                f"u = {disp * 1000:.3f} mil",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color="tab:orange",
+                fontweight="bold",
+            )
+
+    if mode == "loads":
+        for bar in solution.bars:
+            coord = segment_midpoints.get((bar.plate_id, bar.segment))
+            if coord is None:
+                continue
+            x_mid, y_mid = coord
+            ax.text(
+                x_mid,
+                y_mid + 0.32 * vertical_spacing,
+                f"{bar.axial_force:+.1f} lb",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color="tab:blue",
+                fontweight="bold",
+            )
+
+        for fast_idx, fastener in enumerate(solution.fasteners):
+            row_index = int(fastener.row)
+            attachment_coords: List[Tuple[float, float]] = []
+            for plate_idx, plate in enumerate(plates):
+                if plate.first_row <= row_index <= plate.last_row:
+                    coord = node_coords.get((plate_idx, row_index - plate.first_row))
+                    if coord is not None:
+                        attachment_coords.append(coord)
+            if not attachment_coords:
+                continue
+            x_pos = attachment_coords[0][0]
+            y_top = max(pt[1] for pt in attachment_coords)
+            y_bottom = min(pt[1] for pt in attachment_coords)
+            y_label = 0.5 * (y_top + y_bottom)
+            ax.text(
+                x_pos + 0.08 * max_pitch,
+                y_label,
+                f"F{fast_idx + 1} = {fastener.force:+.1f} lb",
+                ha="left",
+                va="center",
+                fontsize=8,
+                color="tab:purple",
+                fontweight="bold",
+            )
+
+    ax.set_xlabel("x [in]")
+    ax.set_yticks([y_levels[idx] for idx in range(len(plates))])
+    ax.set_yticklabels([plate.name for plate in plates])
+    ax.set_ylim(
+        min(y_levels.values(), default=0.0) - 1.1 * vertical_spacing,
+        max(y_levels.values(), default=0.0) + 0.9 * vertical_spacing,
+    )
+    ax.grid(False)
+
+    if Line2D is not None and legend_handles:
+        extra_handles = [
+            Line2D([0], [0], ls="--", color="tab:purple", lw=1.6, label="Fastener"),
+            Line2D([0], [0], marker="v", color="tab:green", linestyle="", markersize=10, label="Support"),
+            Line2D([0], [0], marker="s", color="tab:red", linestyle="", markersize=8, label="Load"),
+        ]
+        legend_handles = legend_handles + extra_handles
+        legend_labels = legend_labels + [h.get_label() for h in extra_handles]
+
+    if legend_handles:
+        ax.legend(legend_handles, legend_labels, loc="upper right")
+
+    titles = {
+        "scheme": "Scheme overview (nodes n#, supports S#, fasteners F#)",
+        "displacements": "Nodal displacements",
+        "loads": "Load distribution (bars & fasteners)",
+    }
+    ax.set_title(titles.get(mode, titles["scheme"]))
+    fig.tight_layout()
+    return fig
+
+
 # ---------- 2.1 Example configuration ----------
 
 def load_example_figure76():
@@ -75,10 +388,17 @@ with st.sidebar:
         # avoids Streamlit complaining about default values being greater than
         # the selected maximum when the user reduces the number of rows.
         for plate in st.session_state.plates:
-            plate.first_row = max(1, min(int(plate.first_row), n_rows))
-            plate.last_row = max(plate.first_row, min(int(plate.last_row), n_rows))
-            segments = plate.last_row - plate.first_row + 1
-            if len(plate.A_strip) != segments:
+            max_first_allowed = max(1, n_rows - 1) if n_rows > 1 else 1
+            plate.first_row = max(1, min(int(plate.first_row), max_first_allowed))
+            if n_rows > 1:
+                min_last_allowed = plate.first_row + 1
+                plate.last_row = max(min_last_allowed, min(int(plate.last_row), n_rows))
+            else:
+                plate.last_row = plate.first_row
+            segments = plate.segment_count()
+            if segments <= 0:
+                plate.A_strip = []
+            elif len(plate.A_strip) != segments:
                 default_area = plate.A_strip[0] if plate.A_strip else 0.05
                 plate.A_strip = [default_area] * segments
 
@@ -112,30 +432,61 @@ with st.sidebar:
             # The values were clamped right after the number of rows changed so
             # that the default values here are always valid. We still apply the
             # min/max constraints to guarantee the relationship first_row ≤ last_row.
-            first_row_value = max(1, min(int(plate.first_row), n_rows))
-            last_row_value = max(first_row_value, min(int(plate.last_row), n_rows))
+            max_first_allowed = max(1, n_rows - 1) if n_rows > 1 else 1
+            first_row_value = max(1, min(int(plate.first_row), max_first_allowed))
             plate.first_row = int(
-                d1.number_input("First row", 1, n_rows, first_row_value, key=f"pl_fr_{idx}")
+                d1.number_input("First row", 1, max_first_allowed, first_row_value, key=f"pl_fr_{idx}")
             )
-            plate.last_row = int(
-                d2.number_input("Last row", plate.first_row, n_rows, last_row_value, key=f"pl_lr_{idx}")
-            )
-            st.write(f"Segments = {plate.last_row - plate.first_row + 1}")
-            segments = plate.last_row - plate.first_row + 1
-            if len(plate.A_strip) != segments:
-                default_area = plate.A_strip[0] if plate.A_strip else 0.05
-                plate.A_strip = [default_area] * segments
-            same_area = st.checkbox("Same bypass area for all segments", value=True, key=f"sameA_{idx}")
-            if same_area:
-                area_val = st.number_input(
-                    "Bypass area per segment [in²]", 1e-5, 10.0, plate.A_strip[0], key=f"pl_A_all_{idx}", step=0.001, format="%.3f"
-                )
-                plate.A_strip = [float(area_val)] * segments
+            if n_rows > 1:
+                min_last_allowed = plate.first_row + 1
+                max_last_allowed = max(min_last_allowed, n_rows)
+                last_row_value = max(min_last_allowed, min(int(plate.last_row), max_last_allowed))
             else:
-                for seg in range(segments):
-                    plate.A_strip[seg] = st.number_input(
-                        f"A[{seg+1}] [in²]", 1e-5, 10.0, plate.A_strip[seg], key=f"pl_A_{idx}_{seg}", step=0.001, format="%.3f"
+                min_last_allowed = plate.first_row
+                max_last_allowed = plate.first_row
+                last_row_value = plate.first_row
+            plate.last_row = int(
+                d2.number_input(
+                    "Last row",
+                    min_last_allowed,
+                    max_last_allowed,
+                    last_row_value,
+                    key=f"pl_lr_{idx}",
+                )
+            )
+            segments = plate.segment_count()
+            st.write(f"Segments = {segments}")
+            if segments <= 0:
+                st.info("Select at least two rows to define plate segments for this layer.")
+                plate.A_strip = []
+            else:
+                if len(plate.A_strip) != segments:
+                    default_area = plate.A_strip[0] if plate.A_strip else 0.05
+                    plate.A_strip = [default_area] * segments
+                same_area = st.checkbox("Same bypass area for all segments", value=True, key=f"sameA_{idx}")
+                if same_area:
+                    default_area = plate.A_strip[0] if plate.A_strip else 0.05
+                    area_val = st.number_input(
+                        "Bypass area per segment [in²]",
+                        1e-5,
+                        10.0,
+                        default_area,
+                        key=f"pl_A_all_{idx}",
+                        step=0.001,
+                        format="%.3f",
                     )
+                    plate.A_strip = [float(area_val)] * segments
+                else:
+                    for seg in range(segments):
+                        plate.A_strip[seg] = st.number_input(
+                            f"A[{seg+1}] [in²]",
+                            1e-5,
+                            10.0,
+                            plate.A_strip[seg],
+                            key=f"pl_A_{idx}_{seg}",
+                            step=0.001,
+                            format="%.3f",
+                        )
             e1, e2 = st.columns(2)
             plate.Fx_left = e1.number_input(
                 "End load LEFT [+→] [lb]", -1e6, 1e6, plate.Fx_left, key=f"pl_Fl_{idx}", step=1.0, format="%.1f"
@@ -145,14 +496,16 @@ with st.sidebar:
             )
     cadd, cex = st.columns([1, 1])
     if cadd.button("➕ Add layer"):
+        default_last = n_rows if n_rows > 1 else 1
+        default_segments = max(default_last - 1, 0)
         st.session_state.plates.append(
             Plate(
                 name=f"Layer{len(st.session_state.plates)}",
                 E=1.0e7,
                 t=0.05,
                 first_row=1,
-                last_row=n_rows,
-                A_strip=[0.05] * n_rows,
+                last_row=default_last,
+                A_strip=[0.05] * default_segments,
             )
         )
     if cex.button("🗑 Remove last layer") and len(st.session_state.plates) > 1:
@@ -217,9 +570,10 @@ with st.sidebar:
                 f"Support {idx} — Plate index (0..)", 0, max_plate_idx, clamped_plate_idx, key=f"sp_pi_{idx}"
             )
             selected_plate = st.session_state.plates[int(plate_idx)]
-            segments = selected_plate.last_row - selected_plate.first_row + 1
-            clamped_local = min(max(int(local_node), 0), segments)
-            local_node = c2.number_input("Local node (0..nSeg)", 0, segments, clamped_local, key=f"sp_ln_{idx}")
+            segments = selected_plate.segment_count()
+            max_local = segments
+            clamped_local = min(max(int(local_node), 0), max_local)
+            local_node = c2.number_input("Local node (0..nSeg)", 0, max_local, clamped_local, key=f"sp_ln_{idx}")
             value = c3.number_input("u [in]", -1.0, 1.0, float(value), key=f"sp_val_{idx}", step=0.001, format="%.3f")
             st.session_state.supports[idx] = (int(plate_idx), int(local_node), float(value))
             if c4.button("✖", key=f"sp_rm_{idx}"):
@@ -252,158 +606,20 @@ if st.button("Solve", type="primary"):
     solution = model.solve(supports=supports, point_forces=None)
 
     if plt is not None:
-        spacing = 120.0
-        y_levels = {idx: -idx * spacing for idx in range(len(plates))}
-        fig, ax = plt.subplots(figsize=(12, 4 + max(len(plates) - 2, 0) * 0.5))
-        global_nodes: List[float] = [0.0]
-        for pitch in pitches:
-            global_nodes.append(global_nodes[-1] + pitch)
-        for xi in global_nodes:
-            ax.axvline(x=xi, ymin=0.05, ymax=0.95, ls=":", lw=0.6, color="0.8")
-
-        if len(global_nodes) >= 2:
-            row_centers = [(global_nodes[i] + global_nodes[i + 1]) / 2.0 for i in range(len(global_nodes) - 1)]
-            top_axis = ax.secondary_xaxis("top")
-            top_axis.set_xticks(row_centers)
-            top_axis.set_xticklabels([f"Row {i + 1}" for i in range(len(row_centers))])
-            top_axis.tick_params(axis="x", labelrotation=0, labelsize=8)
-            top_axis.set_xlabel("Fastener rows")
-
-        node_coords: Dict[Tuple[int, int], Tuple[float, float]] = {}
-        max_pitch = max(pitches) if pitches else 1.0
-        arrow_length = max(0.3, 0.35 * max_pitch)
-
-        for plate_idx, plate in enumerate(plates):
-            segments = plate.last_row - plate.first_row + 1
-            start_index = max(plate.first_row - 1, 0)
-            coords = [global_nodes[start_index]]
-            for seg in range(segments):
-                coords.append(coords[-1] + pitches[start_index + seg])
-            y = y_levels[plate_idx]
-            ys = [y] * (segments + 1)
-            ax.plot(coords, ys, marker="o", lw=2, label=plate.name)
-            for local_node, x_node in enumerate(coords):
-                node_coords[(plate_idx, local_node)] = (x_node, y)
-                ax.scatter(x_node, y, s=36, c="white", edgecolors="black", zorder=5)
-                ax.text(x_node, y + 14, f"n{local_node}", ha="center", va="bottom", fontsize=8)
-
-            if abs(plate.Fx_left) > 0.0:
-                direction = 1 if plate.Fx_left >= 0 else -1
-                x_start = coords[0]
-                x_end = x_start + direction * arrow_length
-                ax.annotate(
-                    "",
-                    xy=(x_end, y),
-                    xytext=(x_start, y),
-                    arrowprops=dict(arrowstyle="<|-", color="tab:red", lw=2),
+        tabs = st.tabs(["Scheme", "Displacements", "Loads"])
+        modes = ["scheme", "displacements", "loads"]
+        for tab, mode in zip(tabs, modes):
+            with tab:
+                fig = _render_joint_diagram(
+                    pitches=pitches,
+                    plates=plates,
+                    fasteners=fasteners,
+                    supports=supports,
+                    solution=solution,
+                    mode=mode,
                 )
-                ax.scatter(x_start, y, marker="s", s=60, c="tab:red", zorder=6)
-                ax.text(
-                    x_end + direction * 0.05 * max_pitch,
-                    y + 26,
-                    f"{plate.Fx_left:+.0f} lb",
-                    ha="left" if direction >= 0 else "right",
-                    va="bottom",
-                    fontsize=9,
-                    color="tab:red",
-                    fontweight="bold",
-                )
-            if abs(plate.Fx_right) > 0.0:
-                direction = 1 if plate.Fx_right >= 0 else -1
-                x_start = coords[-1]
-                x_end = x_start + direction * arrow_length
-                ax.annotate(
-                    "",
-                    xy=(x_end, y),
-                    xytext=(x_start, y),
-                    arrowprops=dict(arrowstyle="<|-", color="tab:red", lw=2),
-                )
-                ax.scatter(x_start, y, marker="s", s=60, c="tab:red", zorder=6)
-                ax.text(
-                    x_end + direction * 0.05 * max_pitch,
-                    y + 26,
-                    f"{plate.Fx_right:+.0f} lb",
-                    ha="left" if direction >= 0 else "right",
-                    va="bottom",
-                    fontsize=9,
-                    color="tab:red",
-                    fontweight="bold",
-                )
-
-        for s_idx, (plate_idx, local_node, value) in enumerate(supports):
-            coord = node_coords.get((plate_idx, local_node))
-            if coord is None:
-                continue
-            x_node, y_node = coord
-            ax.plot([x_node, x_node], [y_node, y_node - 18], color="tab:green", lw=2, zorder=4)
-            ax.scatter(x_node, y_node - 18, marker="v", s=90, c="tab:green", zorder=5)
-            ax.text(
-                x_node,
-                y_node - 32,
-                f"S{s_idx}: {plates[plate_idx].name} n{local_node}\n u={value:+.3f} in",
-                ha="center",
-                va="top",
-                fontsize=8,
-                color="tab:green",
-            )
-
-        for fast_idx, fastener in enumerate(fasteners):
-            row_index = int(fastener.row)
-            if not (1 <= row_index <= len(pitches)):
-                continue
-            attachments: List[Tuple[float, float]] = []
-            for plate_idx, plate in enumerate(plates):
-                if plate.first_row <= row_index <= plate.last_row:
-                    local = row_index - plate.first_row
-                    if 0 <= local <= plate.last_row - plate.first_row:
-                        coord = node_coords.get((plate_idx, local))
-                        if coord is not None:
-                            attachments.append(coord)
-            if len(attachments) < 2:
-                continue
-            attachments.sort(key=lambda item: item[1], reverse=True)
-            xs_attach = [item[0] for item in attachments]
-            ys_attach = [item[1] for item in attachments]
-            ax.plot(
-                xs_attach,
-                ys_attach,
-                ls="--",
-                color="tab:purple",
-                lw=1.5,
-                marker="o",
-                markersize=4,
-                zorder=4,
-            )
-            ax.text(
-                sum(xs_attach) / len(xs_attach),
-                max(ys_attach) + 18,
-                f"F{fast_idx + 1} @ n{row_index}",
-                ha="center",
-                va="bottom",
-                fontsize=8,
-                color="tab:purple",
-            )
-
-        ax.set_xlabel("x [in]")
-        if plates:
-            ax.set_yticks([y_levels[i] for i in range(len(plates))])
-            ax.set_yticklabels([plate.name for plate in plates])
-        ax.set_ylim(min(y_levels.values(), default=0.0) - 80.0, 60.0)
-        ax.margins(x=0.05)
-        handles, labels = ax.get_legend_handles_labels()
-        if Line2D is not None:
-            extra_handles = [
-                Line2D([0], [0], ls="--", color="tab:purple", lw=1.5, label="Fastener"),
-                Line2D([0], [0], marker="v", color="tab:green", linestyle="", markersize=10, label="Support"),
-                Line2D([0], [0], marker="s", color="tab:red", linestyle="", markersize=8, label="Load"),
-            ]
-            handles += extra_handles
-            labels += [h.get_label() for h in extra_handles]
-        ax.legend(handles, labels, loc="upper right")
-        ax.set_title("Scheme overview (nodes n#, supports S#, fasteners F#)")
-        ax.grid(False)
-        fig.tight_layout()
-        st.pyplot(fig)
+                st.pyplot(fig, use_container_width=True)
+                plt.close(fig)
     else:  # pragma: no cover - executed only when matplotlib is unavailable
         st.info("Matplotlib is not installed. Install it to see the schematic plot.")
 

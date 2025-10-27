@@ -14,24 +14,24 @@ def test_figure76_solution_matches_expected_response():
     model = Joint1D(pitches=pitches, plates=plates, fasteners=fasteners)
     solution = model.solve(supports=supports)
 
-    assert len(solution.displacements) == 17
-    assert max(abs(u) for u in solution.displacements) == pytest.approx(0.006690408486770177)
+    assert len(solution.displacements) == 14
+    assert max(abs(u) for u in solution.displacements) == pytest.approx(0.005474220733198422)
 
     expected_fastener_forces = [
-        -70.95743621581275,
-        -106.9564166494746,
-        -197.2178134775014,
-        -374.0995643675598,
-        -223.22363323853835,
-        -179.78852387124815,
-        -222.88827852265118,
+        -56.401704454461,
+        -85.01609588915109,
+        -156.76187616308238,
+        -358.5903307098406,
+        -218.7686399729117,
+        -184.24351713687625,
+        -238.3975121803719,
     ]
     computed_forces = [fastener["F [lb]"] for fastener in solution.fasteners_as_dicts()]
     assert computed_forces == pytest.approx(expected_fastener_forces)
 
     row4 = {item["Plate"]: (item["Bearing [lb]"], item["Bypass [lb]"]) for item in solution.bearing_bypass_as_dicts() if item["Row"] == 4}
-    assert row4["Doubler"] == pytest.approx((-374.0995643675597, 1.032101975229011), rel=1e-12)
-    assert row4["Skin"] == pytest.approx((-625.90043563244, 0.0), rel=1e-12)
+    assert row4["Doubler"] == pytest.approx((-358.5903307098407, -60.41065420314609), rel=1e-12)
+    assert row4["Skin"] == pytest.approx((-641.4096692901595, 0.0), rel=1e-12)
 
     tripler_left = next(item for item in solution.nodes_as_dicts() if item["Plate"] == "Tripler" and item["local_node"] == 0)
-    assert tripler_left["u [in]"] == pytest.approx(0.0009441654375830268)
+    assert tripler_left["u [in]"] == pytest.approx(0.00029931643381921725)
