@@ -39,7 +39,8 @@ class FastenerRow:
 @dataclass
 class FastenerResult:
     row: int
-    interface: str
+    plate_i: int
+    plate_j: int
     compliance: float
     stiffness: float
     force: float
@@ -117,14 +118,14 @@ class JointSolution:
         return [
             {
                 "Row": fastener.row,
-                "Interface": fastener.interface,
+                "Fastener": f"F{index + 1}",
                 "CF [in/lb]": fastener.compliance,
                 "k [lb/in]": fastener.stiffness,
                 "F [lb]": fastener.force,
                 "iDOF": fastener.dof_i,
                 "jDOF": fastener.dof_j,
             }
-            for fastener in self.fasteners
+            for index, fastener in enumerate(self.fasteners)
         ]
 
     def nodes_as_dicts(self) -> List[Dict[str, float]]:
@@ -296,7 +297,7 @@ class Joint1D:
             force_vector[self._dof[(plate_index, 0)]] += plate.Fx_left
             force_vector[self._dof[(plate_index, segments)]] += plate.Fx_right
 
-        springs: List[Tuple[int, int, float, int, str, float]] = []
+        springs: List[Tuple[int, int, float, int, int, int, float]] = []
         for fastener in self.fasteners:
             row_index = fastener.row
             pairs = self._resolve_fastener_pairs(fastener, row_index)
@@ -312,7 +313,7 @@ class Joint1D:
                 stiffness_matrix[dof_upper][dof_lower] -= stiffness
                 stiffness_matrix[dof_lower][dof_upper] -= stiffness
                 stiffness_matrix[dof_lower][dof_lower] += stiffness
-                springs.append((dof_upper, dof_lower, stiffness, row_index, f"{upper_plate.name}-{lower_plate.name}", compliance))
+                springs.append((dof_upper, dof_lower, stiffness, row_index, upper_idx, lower_idx, compliance))
 
         for plate_index, local_node, magnitude in point_forces:
             force_vector[self._dof[(plate_index, local_node)]] += magnitude
@@ -336,12 +337,13 @@ class Joint1D:
             displacements[idx] = value
 
         fastener_results: List[FastenerResult] = []
-        for dof_i, dof_j, stiffness, row_index, interface, compliance in springs:
+        for dof_i, dof_j, stiffness, row_index, plate_i, plate_j, compliance in springs:
             force = stiffness * (displacements[dof_i] - displacements[dof_j])
             fastener_results.append(
                 FastenerResult(
                     row=row_index,
-                    interface=interface,
+                    plate_i=plate_i,
+                    plate_j=plate_j,
                     compliance=compliance,
                     stiffness=stiffness,
                     force=force,
@@ -349,7 +351,7 @@ class Joint1D:
                     dof_j=dof_j,
                 )
             )
-        fastener_results.sort(key=lambda item: (item.row, item.interface))
+        fastener_results.sort(key=lambda item: (item.row, min(item.plate_i, item.plate_j), max(item.plate_i, item.plate_j)))
 
         bearing_results: List[BearingBypassResult] = []
         for row_index in range(1, len(self.pitches) + 1):
