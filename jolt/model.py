@@ -22,7 +22,7 @@ class Plate:
     Fx_right: float = 0.0
 
     def segment_count(self) -> int:
-        return max(0, self.last_row - self.first_row + 1)
+        return max(0, self.last_row - self.first_row)
 
 
 @dataclass
@@ -198,7 +198,7 @@ class Joint1D:
             start_index = max(plate.first_row - 1, 0)
             x0 = sum(self.pitches[:start_index])
             xs = [x0]
-            end_index = min(max(plate.last_row, start_index), len(self.pitches))
+            end_index = min(max(plate.last_row - 1, start_index), len(self.pitches))
             for segment_index in range(start_index, end_index):
                 xs.append(xs[-1] + self.pitches[segment_index])
             for local_node, position in enumerate(xs):
@@ -303,8 +303,8 @@ class Joint1D:
             for upper_idx, lower_idx in pairs:
                 upper_plate = self.plates[upper_idx]
                 lower_plate = self.plates[lower_idx]
-                local_upper = row_index - upper_plate.first_row + 1
-                local_lower = row_index - lower_plate.first_row + 1
+                local_upper = row_index - upper_plate.first_row
+                local_lower = row_index - lower_plate.first_row
                 dof_upper = self._dof[(upper_idx, local_upper)]
                 dof_lower = self._dof[(lower_idx, local_lower)]
                 compliance, stiffness = self._compliance_for_pair(fastener, upper_plate, lower_plate)
