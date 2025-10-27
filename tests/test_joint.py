@@ -1,6 +1,6 @@
 import pytest
 
-from jolt import Joint1D, boeing69_compliance, figure76_example
+from jolt import Joint1D, Plate, FastenerRow, boeing69_compliance, figure76_example
 
 
 def test_boeing69_compliance_matches_reference_value():
@@ -35,3 +35,58 @@ def test_figure76_solution_matches_expected_response():
 
     tripler_left = next(item for item in solution.nodes_as_dicts() if item["Plate"] == "Tripler" and item["local_node"] == 0)
     assert tripler_left["u [in]"] == pytest.approx(0.00029931643381921725)
+
+
+def test_fastener_custom_interfaces():
+    pitches = [1.0, 1.0]
+    plates = [
+        Plate(name="Top", E=1.0e7, t=0.05, first_row=1, last_row=3, A_strip=[0.05, 0.05]),
+        Plate(name="Middle", E=1.0e7, t=0.05, first_row=1, last_row=3, A_strip=[0.05, 0.05]),
+        Plate(name="Bottom", E=1.0e7, t=0.05, first_row=1, last_row=3, A_strip=[0.05, 0.05], Fx_right=100.0),
+    ]
+    fastener = FastenerRow(row=2, D=0.25, Eb=1.0e7, nu_b=0.3, method="Manual", k_manual=1.0e5)
+    supports = [(0, 0, 0.0), (1, 0, 0.0), (2, 0, 0.0)]
+
+    model_default = Joint1D(pitches=pitches, plates=plates, fasteners=[fastener])
+    solution_default = model_default.solve(supports=supports)
+    interfaces_default = sorted(item.interface for item in solution_default.fasteners)
+    assert interfaces_default == ["Middle-Bottom", "Top-Middle"]
+
+    fastener_upper_only = FastenerRow(
+        row=2,
+        D=0.25,
+        Eb=1.0e7,
+        nu_b=0.3,
+        method="Manual",
+        k_manual=1.0e5,
+        connections=[(0, 1)],
+    )
+    model_upper = Joint1D(pitches=pitches, plates=plates, fasteners=[fastener_upper_only])
+    solution_upper = model_upper.solve(supports=supports)
+    assert [item.interface for item in solution_upper.fasteners] == ["Top-Middle"]
+
+    fastener_lower_only = FastenerRow(
+        row=2,
+        D=0.25,
+        Eb=1.0e7,
+        nu_b=0.3,
+        method="Manual",
+        k_manual=1.0e5,
+        connections=[(1, 2)],
+    )
+    model_lower = Joint1D(pitches=pitches, plates=plates, fasteners=[fastener_lower_only])
+    solution_lower = model_lower.solve(supports=supports)
+    assert [item.interface for item in solution_lower.fasteners] == ["Middle-Bottom"]
+
+    fastener_invalid = FastenerRow(
+        row=1,
+        D=0.25,
+        Eb=1.0e7,
+        nu_b=0.3,
+        method="Manual",
+        k_manual=1.0e5,
+        connections=[(0, 2)],
+    )
+    model_invalid = Joint1D(pitches=pitches, plates=plates, fasteners=[fastener_invalid])
+    with pytest.raises(ValueError):
+        model_invalid.solve(supports=supports)

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple, Set
 
 from .fasteners import boeing69_compliance, grumman_compliance, huth_compliance
 from .linalg import extract_submatrix, extract_vector, solve_dense
@@ -33,6 +33,7 @@ class FastenerRow:
     nu_b: float
     method: str = "Boeing69"
     k_manual: Optional[float] = None
+    connections: Optional[List[Tuple[int, int]]] = None
 
 
 @dataclass
@@ -201,6 +202,46 @@ class Joint1D:
         stiffness = 1.0 / compliance if compliance > 0.0 else 1e12
         return compliance, stiffness
 
+    def _resolve_fastener_pairs(self, fastener: FastenerRow, row_index: int) -> List[Tuple[int, int]]:
+        present = [
+            idx
+            for idx, plate in enumerate(self.plates)
+            if plate.first_row <= row_index <= plate.last_row
+        ]
+        present.sort()
+        if len(present) < 2:
+            return []
+
+        if fastener.connections is None:
+            return list(zip(present[:-1], present[1:]))
+
+        order = {plate_idx: position for position, plate_idx in enumerate(present)}
+        resolved: List[Tuple[int, int]] = []
+        seen: Set[Tuple[int, int]] = set()
+
+        for pair in fastener.connections:
+            if len(pair) != 2:
+                raise ValueError("Fastener connections must be defined as pairs of plate indices")
+            raw_top, raw_bottom = int(pair[0]), int(pair[1])
+            if raw_top not in order or raw_bottom not in order:
+                raise ValueError(
+                    f"Fastener at row {row_index} cannot connect plates {raw_top} and {raw_bottom}; at least one plate is not present"
+                )
+            if raw_top == raw_bottom:
+                raise ValueError("Fastener connections require two different plates")
+            top_idx, bottom_idx = (raw_top, raw_bottom)
+            if order[top_idx] > order[bottom_idx]:
+                top_idx, bottom_idx = bottom_idx, top_idx
+            if abs(order[top_idx] - order[bottom_idx]) != 1:
+                raise ValueError("Fastener connections must reference adjacent plates at the selected row")
+            key = (top_idx, bottom_idx)
+            if key in seen:
+                continue
+            seen.add(key)
+            resolved.append(key)
+
+        return resolved
+
     # --- solution ------------------------------------------------------------------
     def solve(
         self,
@@ -233,9 +274,8 @@ class Joint1D:
         springs: List[Tuple[int, int, float, int, str, float]] = []
         for fastener in self.fasteners:
             row_index = fastener.row
-            present = [idx for idx, plate in enumerate(self.plates) if plate.first_row <= row_index <= plate.last_row]
-            present.sort()
-            for upper_idx, lower_idx in zip(present[:-1], present[1:]):
+            pairs = self._resolve_fastener_pairs(fastener, row_index)
+            for upper_idx, lower_idx in pairs:
                 upper_plate = self.plates[upper_idx]
                 lower_plate = self.plates[lower_idx]
                 local_upper = row_index - upper_plate.first_row

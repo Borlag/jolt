@@ -1,8 +1,9 @@
 """Streamlit application for the JOLT 1D joint model."""
 from __future__ import annotations
 
-from dataclasses import replace
-from typing import Dict, List, Sequence, Tuple
+import json
+from dataclasses import asdict, replace
+from typing import Any, Dict, List, Sequence, Tuple, Set
 
 try:  # Optional imports used for the UI only
     import matplotlib.pyplot as plt  # type: ignore
@@ -27,6 +28,129 @@ from jolt import FastenerRow, Joint1D, JointSolution, Plate, figure76_example
 
 
 st.set_page_config(page_title="JOLT 1D Joint", layout="wide")
+
+
+def _plates_present_at_row(plates: Sequence[Plate], row_index: int) -> List[int]:
+    present = [
+        idx
+        for idx, plate in enumerate(plates)
+        if plate.first_row <= row_index <= plate.last_row
+    ]
+    present.sort()
+    return present
+
+
+def _available_fastener_pairs(fastener: FastenerRow, plates: Sequence[Plate]) -> List[Tuple[int, int]]:
+    row_index = int(fastener.row)
+    present = _plates_present_at_row(plates, row_index)
+    return list(zip(present[:-1], present[1:]))
+
+
+def _resolve_fastener_connections(
+    fastener: FastenerRow, plates: Sequence[Plate]
+) -> List[Tuple[int, int]]:
+    row_index = int(fastener.row)
+    present = _plates_present_at_row(plates, row_index)
+    if len(present) < 2:
+        return []
+    if fastener.connections is None:
+        return list(zip(present[:-1], present[1:]))
+
+    order = {plate_idx: position for position, plate_idx in enumerate(present)}
+    resolved: List[Tuple[int, int]] = []
+    seen: Set[Tuple[int, int]] = set()
+
+    for pair in fastener.connections:
+        if len(pair) != 2:
+            continue
+        raw_top, raw_bottom = int(pair[0]), int(pair[1])
+        if raw_top not in order or raw_bottom not in order:
+            continue
+        top_idx, bottom_idx = (raw_top, raw_bottom)
+        if order[top_idx] > order[bottom_idx]:
+            top_idx, bottom_idx = bottom_idx, top_idx
+        if abs(order[top_idx] - order[bottom_idx]) != 1:
+            continue
+        key = (top_idx, bottom_idx)
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved.append(key)
+
+    return resolved
+
+
+def _plate_to_dict(plate: Plate) -> Dict[str, Any]:
+    return asdict(plate)
+
+
+def _fastener_to_dict(fastener: FastenerRow) -> Dict[str, Any]:
+    data = asdict(fastener)
+    connections = data.get("connections")
+    if connections is not None:
+        data["connections"] = [list(pair) for pair in connections]
+    return data
+
+
+def _serialize_configuration(
+    pitches: Sequence[float],
+    plates: Sequence[Plate],
+    fasteners: Sequence[FastenerRow],
+    supports: Sequence[Tuple[int, int, float]],
+    label: str,
+    unloading: str,
+) -> Dict[str, Any]:
+    return {
+        "label": label,
+        "unloading": unloading,
+        "pitches": list(pitches),
+        "plates": [_plate_to_dict(plate) for plate in plates],
+        "fasteners": [_fastener_to_dict(fastener) for fastener in fasteners],
+        "supports": [list(item) for item in supports],
+    }
+
+
+def _plate_from_dict(data: Dict[str, Any]) -> Plate:
+    return Plate(
+        name=str(data.get("name", "Plate")),
+        E=float(data.get("E", 0.0)),
+        t=float(data.get("t", 0.0)),
+        first_row=int(data.get("first_row", 1)),
+        last_row=int(data.get("last_row", 1)),
+        A_strip=list(data.get("A_strip", [])),
+        Fx_left=float(data.get("Fx_left", 0.0)),
+        Fx_right=float(data.get("Fx_right", 0.0)),
+    )
+
+
+def _fastener_from_dict(data: Dict[str, Any]) -> FastenerRow:
+    connections_raw = data.get("connections")
+    connections = None
+    if connections_raw is not None:
+        connections = [
+            (int(pair[0]), int(pair[1]))
+            for pair in connections_raw
+            if isinstance(pair, (list, tuple)) and len(pair) == 2
+        ]
+    k_manual = data.get("k_manual")
+    return FastenerRow(
+        row=int(data.get("row", 1)),
+        D=float(data.get("D", 0.0)),
+        Eb=float(data.get("Eb", 0.0)),
+        nu_b=float(data.get("nu_b", 0.0)),
+        method=str(data.get("method", "Boeing69")),
+        k_manual=float(k_manual) if k_manual is not None else None,
+        connections=connections,
+    )
+
+
+def _load_configuration(config: Dict[str, Any]) -> None:
+    st.session_state.pitches = list(config.get("pitches", []))
+    st.session_state.plates = [_plate_from_dict(item) for item in config.get("plates", [])]
+    st.session_state.fasteners = [_fastener_from_dict(item) for item in config.get("fasteners", [])]
+    st.session_state.supports = [tuple(item) for item in config.get("supports", [])]
+    st.session_state.config_label = str(config.get("label", "Case"))
+    st.session_state.config_unloading = str(config.get("unloading", ""))
 
 
 def _node_table(solution: JointSolution) -> List[dict]:
@@ -68,6 +192,17 @@ def _render_joint_diagram(
     if global_nodes:
         margin = 0.12 * max_pitch
         ax.set_xlim(global_nodes[0] - margin, global_nodes[-1] + margin)
+        if len(global_nodes) >= 2:
+            for idx in range(len(global_nodes) - 1):
+                if idx % 2 == 0:
+                    ax.axvspan(
+                        global_nodes[idx],
+                        global_nodes[idx + 1],
+                        color="0.96",
+                        zorder=0,
+                    )
+        ax.set_xticks(global_nodes)
+        ax.set_xticklabels([f"n{i + 1}" for i in range(len(global_nodes))])
 
     y_levels: Dict[int, float] = {
         idx: (len(plates) - idx - 1) * vertical_spacing for idx in range(len(plates))
@@ -75,6 +210,7 @@ def _render_joint_diagram(
 
     node_coords: Dict[Tuple[int, int], Tuple[float, float]] = {}
     segment_midpoints: Dict[Tuple[int, int], Tuple[float, float]] = {}
+    plate_name_to_index: Dict[str, int] = {plate.name: idx for idx, plate in enumerate(plates)}
 
     for xi in global_nodes:
         ax.axvline(
@@ -182,37 +318,45 @@ def _render_joint_diagram(
 
     for fast_idx, fastener in enumerate(fasteners):
         row_index = int(fastener.row)
-        attachments: List[Tuple[float, float]] = []
+        attachments: Dict[int, Tuple[float, float]] = {}
         for plate_idx, plate in enumerate(plates):
             if plate.first_row <= row_index <= plate.last_row:
                 local = row_index - plate.first_row
                 coord = node_coords.get((plate_idx, local))
                 if coord is not None:
-                    attachments.append(coord)
-        if len(attachments) < 2:
-            continue
-        attachments.sort(key=lambda pt: pt[1], reverse=True)
-        x_vals = [pt[0] for pt in attachments]
-        y_vals = [pt[1] for pt in attachments]
-        ax.plot(
-            [x_vals[0]] * len(y_vals),
-            y_vals,
-            ls="--",
-            color="tab:purple",
-            lw=1.6,
-            marker="o",
-            markersize=4,
-            zorder=4,
-        )
-        ax.text(
-            x_vals[0],
-            y_vals[0] + 0.45 * vertical_spacing,
-            f"F{fast_idx + 1} @ n{row_index}",
-            ha="center",
-            va="bottom",
-            fontsize=8,
-            color="tab:purple",
-        )
+                    attachments[plate_idx] = coord
+        pairs = _resolve_fastener_connections(fastener, plates)
+        used_coords: List[Tuple[float, float]] = []
+        for top_idx, bottom_idx in pairs:
+            coord_top = attachments.get(top_idx)
+            coord_bottom = attachments.get(bottom_idx)
+            if coord_top is None or coord_bottom is None:
+                continue
+            x_val = coord_top[0]
+            y_vals = [coord_top[1], coord_bottom[1]]
+            ax.plot(
+                [x_val, x_val],
+                y_vals,
+                ls="--",
+                color="tab:purple",
+                lw=1.6,
+                marker="o",
+                markersize=4,
+                zorder=4,
+            )
+            used_coords.extend([coord_top, coord_bottom])
+        if used_coords:
+            x_label = used_coords[0][0]
+            y_label = max(pt[1] for pt in used_coords)
+            ax.text(
+                x_label,
+                y_label + 0.45 * vertical_spacing,
+                f"F{fast_idx + 1} @ n{row_index}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+                color="tab:purple",
+            )
 
     for s_idx, (plate_idx, local_node, value) in enumerate(supports):
         coord = node_coords.get((plate_idx, local_node))
@@ -300,22 +444,32 @@ def _render_joint_diagram(
 
         for fast_idx, fastener in enumerate(solution.fasteners):
             row_index = int(fastener.row)
-            attachment_coords: List[Tuple[float, float]] = []
-            for plate_idx, plate in enumerate(plates):
+            interface_names = fastener.interface.split("-", 1)
+            indices: List[int] = []
+            for name in interface_names:
+                idx = plate_name_to_index.get(name.strip())
+                if idx is not None:
+                    indices.append(idx)
+            coords: List[Tuple[float, float]] = []
+            for plate_idx in indices:
+                if not (0 <= plate_idx < len(plates)):
+                    continue
+                plate = plates[plate_idx]
                 if plate.first_row <= row_index <= plate.last_row:
-                    coord = node_coords.get((plate_idx, row_index - plate.first_row))
+                    local = row_index - plate.first_row
+                    coord = node_coords.get((plate_idx, local))
                     if coord is not None:
-                        attachment_coords.append(coord)
-            if not attachment_coords:
+                        coords.append(coord)
+            if len(coords) < 2:
                 continue
-            x_pos = attachment_coords[0][0]
-            y_top = max(pt[1] for pt in attachment_coords)
-            y_bottom = min(pt[1] for pt in attachment_coords)
-            y_label = 0.5 * (y_top + y_bottom)
+            coords.sort(key=lambda pt: pt[1], reverse=True)
+            x_pos = coords[0][0]
+            y_label = 0.5 * (coords[0][1] + coords[1][1])
+            label_interface = fastener.interface.replace("-", " ↔ ")
             ax.text(
                 x_pos + 0.08 * max_pitch,
                 y_label,
-                f"F{fast_idx + 1} = {fastener.force:+.1f} lb",
+                f"F{fast_idx + 1} ({label_interface}) = {fastener.force:+.1f} lb",
                 ha="left",
                 va="center",
                 fontsize=8,
@@ -369,6 +523,13 @@ if "pitches" not in st.session_state:
         st.session_state.fasteners,
         st.session_state.supports,
     ) = load_example_figure76()
+
+if "saved_models" not in st.session_state:
+    st.session_state.saved_models: List[Dict[str, Any]] = []
+if "config_label" not in st.session_state:
+    st.session_state.config_label = "Case 1"
+if "config_unloading" not in st.session_state:
+    st.session_state.config_unloading = ""
 
 
 # ---------- 2.3 Input panels ----------
@@ -521,10 +682,16 @@ with st.sidebar:
             else:
                 template = FastenerRow(row=1, D=0.188, Eb=1.0e7, nu_b=0.3)
             default_row = min(len(st.session_state.pitches), template.row if template.row > 0 else 1)
+            template_connections = (
+                None
+                if template.connections is None
+                else [tuple(pair) for pair in template.connections]
+            )
             st.session_state.fasteners.append(
                 replace(
                     template,
                     row=max(1, default_row) if n_rows > 0 else 1,
+                    connections=template_connections,
                 )
             )
     with fcols[1]:
@@ -533,7 +700,7 @@ with st.sidebar:
     remove_fasteners: List[int] = []
     methods = ["Boeing69", "Huth_metal", "Huth_graphite", "Grumman", "Manual"]
     for idx, fastener in enumerate(st.session_state.fasteners):
-        with st.expander(f"Fastener {idx + 1} — node {fastener.row}", expanded=(len(st.session_state.fasteners) <= 6)):
+        with st.expander(f"Fastener {idx + 1} — row {fastener.row}", expanded=(len(st.session_state.fasteners) <= 6)):
             c0, c1, c2, c3, c4 = st.columns([1, 1, 1, 1, 0.5])
             clamped_row = min(max(int(fastener.row), 1), max(n_rows, 1))
             fastener.row = int(
@@ -549,6 +716,30 @@ with st.sidebar:
                 fastener.k_manual = st.number_input(
                     "Manual k [lb/in]", 1.0, 1e12, fastener.k_manual or 1.0e6, key=f"fr_km_{idx}", step=1e5, format="%.0f"
                 )
+            available_pairs = _available_fastener_pairs(fastener, st.session_state.plates)
+            if available_pairs:
+                st.markdown("**Interfaces connected by this fastener**")
+                if fastener.connections is None:
+                    selected_pairs: Set[Tuple[int, int]] = set(available_pairs)
+                else:
+                    selected_pairs = {tuple(pair) for pair in fastener.connections}
+                updated_pairs: List[Tuple[int, int]] = []
+                for top_idx, bottom_idx in available_pairs:
+                    label = f"{st.session_state.plates[top_idx].name} ↔ {st.session_state.plates[bottom_idx].name}"
+                    checked = (top_idx, bottom_idx) in selected_pairs
+                    checked = st.checkbox(
+                        label,
+                        value=checked,
+                        key=f"fr_conn_{idx}_{top_idx}_{bottom_idx}",
+                    )
+                    if checked:
+                        updated_pairs.append((top_idx, bottom_idx))
+                fastener.connections = updated_pairs
+                if not updated_pairs:
+                    st.warning("This fastener will not connect any interfaces at the selected row.")
+            else:
+                fastener.connections = []
+                st.info("Only one layer is present at this row; no spring will be added.")
             if st.button("✖ Remove", key=f"fr_rm_{idx}"):
                 remove_fasteners.append(idx)
     if remove_fasteners:
@@ -581,6 +772,42 @@ with st.sidebar:
     if remove_ids:
         for idx in sorted(remove_ids, reverse=True):
             st.session_state.supports.pop(idx)
+
+    st.divider()
+    st.subheader("Saved configurations")
+    saved_configs = st.session_state.saved_models
+    if saved_configs:
+        indices = list(range(len(saved_configs)))
+        selected_idx = st.selectbox(
+            "Available cases",
+            indices,
+            format_func=lambda idx: saved_configs[idx]["label"],
+            key="saved_config_select",
+        )
+        chosen = saved_configs[selected_idx]
+        load_col, delete_col, export_col = st.columns([1, 1, 1])
+        if load_col.button("Load", key="load_saved_config"):
+            _load_configuration(chosen)
+            st.session_state.config_label = chosen["label"]
+            st.session_state.config_unloading = chosen.get("unloading", "")
+            st.session_state["_last_loaded_config"] = chosen["label"]
+            st.experimental_rerun()
+        if delete_col.button("Delete", key="delete_saved_config"):
+            st.session_state.saved_models.pop(selected_idx)
+            st.experimental_rerun()
+        export_data = json.dumps(chosen, indent=2).encode("utf-8")
+        export_name = chosen["label"].strip().replace(" ", "_") or "configuration"
+        export_col.download_button(
+            "⬇️ Export",
+            data=export_data,
+            file_name=f"{export_name}.json",
+            mime="application/json",
+            key="export_saved_config",
+        )
+        if "_last_loaded_config" in st.session_state:
+            st.caption(f"Loaded: {st.session_state['_last_loaded_config']}")
+    else:
+        st.info("No saved configurations yet. Save one after solving a case.")
 
     st.divider()
     if st.button("Load ▶ JOLT Figure 76"):
@@ -688,6 +915,44 @@ if st.button("Solve", type="primary"):
             data=df_bb.to_csv(index=False).encode("utf-8"),
             file_name="bearing_bypass.csv",
             mime="text/csv",
+        )
+
+    st.divider()
+    with st.expander("Save / export configuration", expanded=False):
+        default_label = st.session_state.config_label or f"Case {len(st.session_state.saved_models) + 1}"
+        label = st.text_input("Configuration label", default_label, key="save_cfg_label")
+        unloading_note = st.text_input(
+            "Unloading / load case description",
+            st.session_state.config_unloading,
+            key="save_cfg_unloading",
+        )
+        config_dict = _serialize_configuration(
+            pitches=pitches,
+            plates=plates,
+            fasteners=fasteners,
+            supports=supports,
+            label=label,
+            unloading=unloading_note,
+        )
+        save_col, download_col = st.columns([1, 1])
+        if save_col.button("💾 Save to session", key="save_cfg_button"):
+            st.session_state.config_label = label
+            st.session_state.config_unloading = unloading_note
+            existing = next((idx for idx, cfg in enumerate(st.session_state.saved_models) if cfg["label"] == label), None)
+            if existing is not None:
+                st.session_state.saved_models[existing] = config_dict
+                st.success(f"Updated saved configuration '{label}'.")
+            else:
+                st.session_state.saved_models.append(config_dict)
+                st.success(f"Saved configuration '{label}'.")
+        download_payload = json.dumps(config_dict, indent=2).encode("utf-8")
+        file_stub = label.strip().replace(" ", "_") or "configuration"
+        download_col.download_button(
+            "⬇️ Download JSON",
+            data=download_payload,
+            file_name=f"{file_stub}.json",
+            mime="application/json",
+            key="download_cfg_json",
         )
 else:
     st.info("Соберите схему в левой панели и нажмите **Solve**. Для воспроизведения скрина используйте **Load ▶ JOLT Figure 76**.")
