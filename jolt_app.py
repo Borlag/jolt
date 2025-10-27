@@ -817,6 +817,7 @@ with st.sidebar:
             st.success(
                 f"Loaded configuration '{configuration.label or display_name}'."
             )
+            st.session_state["cfg_upload"] = None
             st.rerun()
     saved_configs = st.session_state.saved_models
     if saved_configs:
@@ -862,7 +863,7 @@ with st.sidebar:
         st.session_state.config_label = "JOLT Figure 76"
         st.session_state.config_unloading = ""
         st.session_state["_last_loaded_config"] = "JOLT Figure 76"
-        st.experimental_rerun()
+        st.rerun()
 
 
 # ---------- 2.4 Solution ----------
