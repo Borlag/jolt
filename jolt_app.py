@@ -817,7 +817,7 @@ with st.sidebar:
             st.success(
                 f"Loaded configuration '{configuration.label or display_name}'."
             )
-            st.experimental_rerun()
+            st.rerun()
     saved_configs = st.session_state.saved_models
     if saved_configs:
         indices = list(range(len(saved_configs)))
@@ -832,10 +832,10 @@ with st.sidebar:
         if load_col.button("Load", key="load_saved_config"):
             configuration = _apply_configuration(chosen)
             st.session_state["_last_loaded_config"] = configuration.label or chosen["label"]
-            st.experimental_rerun()
+            st.rerun()
         if delete_col.button("Delete", key="delete_saved_config"):
             st.session_state.saved_models.pop(selected_idx)
-            st.experimental_rerun()
+            st.rerun()
         export_data = json.dumps(chosen, indent=2).encode("utf-8")
         export_name = chosen["label"].strip().replace(" ", "_") or "configuration"
         export_col.download_button(
