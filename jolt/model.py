@@ -190,6 +190,23 @@ class Joint1D:
         self._dof: Dict[Tuple[int, int], int] = {}
         self._x: Dict[Tuple[int, int], float] = {}
 
+    # --- stiffness helpers --------------------------------------------------------
+    def _axial_stiffness_to_node(self, plate: Plate, local_node: int) -> float:
+        """Return the equivalent axial stiffness from the plate start to ``local_node``."""
+
+        segments = min(max(local_node, 0), plate.segment_count())
+        if segments <= 0:
+            return 0.0
+        compliance = 0.0
+        for segment in range(segments):
+            stiffness = self._element_stiffness(plate, segment)
+            if stiffness <= 0.0:
+                return 0.0
+            compliance += 1.0 / stiffness
+        if compliance <= 0.0:
+            return 0.0
+        return 1.0 / compliance
+
     # --- degree-of-freedom helpers -------------------------------------------------
     def _build_dofs(self) -> int:
         self._dof.clear()
@@ -207,6 +224,17 @@ class Joint1D:
                 self._x[(plate_index, local_node)] = position
                 ndof += 1
         return ndof
+
+    def _element_stiffness(self, plate: Plate, segment: int) -> float:
+        """Return the axial stiffness of ``plate`` for ``segment``."""
+
+        if segment < 0 or segment >= plate.segment_count():
+            return 0.0
+        length = self.pitches[plate.first_row - 1 + segment]
+        area = plate.A_strip[segment]
+        if plate.E <= 0.0 or length <= 0.0 or area <= 0.0:
+            return 0.0
+        return plate.E * area / length
 
     # --- compliance helpers --------------------------------------------------------
     def _compliance_for_pair(self, fastener: FastenerRow, top: Plate, bottom: Plate) -> Tuple[float, float]:
@@ -277,6 +305,14 @@ class Joint1D:
         point_forces = point_forces or []
         ndof = self._build_dofs()
 
+        resolved_supports: List[Tuple[int, int, float]] = []
+        for plate_index, local_node, value in supports:
+            plate = self.plates[plate_index]
+            max_local = plate.segment_count()
+            clamped = max(0, min(local_node, max_local))
+            resolved_supports.append((plate_index, clamped, value))
+        supports = resolved_supports
+
         stiffness_matrix = [[0.0 for _ in range(ndof)] for _ in range(ndof)]
         force_vector = [0.0 for _ in range(ndof)]
 
@@ -285,9 +321,7 @@ class Joint1D:
             if len(plate.A_strip) != segments:
                 raise ValueError(f"Plate '{plate.name}' expects {segments} bypass areas; received {len(plate.A_strip)}")
             for segment in range(segments):
-                length = self.pitches[plate.first_row - 1 + segment]
-                area = plate.A_strip[segment]
-                k_bar = plate.E * area / length
+                k_bar = self._element_stiffness(plate, segment)
                 left = self._dof[(plate_index, segment)]
                 right = self._dof[(plate_index, segment + 1)]
                 stiffness_matrix[left][left] += k_bar
@@ -318,6 +352,21 @@ class Joint1D:
         for plate_index, local_node, magnitude in point_forces:
             force_vector[self._dof[(plate_index, local_node)]] += magnitude
 
+        support_groups: Dict[int, List[Tuple[int, int, float, float]]] = {}
+        for plate_index, local_node, _ in supports:
+            plate = self.plates[plate_index]
+            if local_node <= 0:
+                continue
+            prev_segment = local_node - 1
+            k_end = self._element_stiffness(plate, prev_segment)
+            k_total = self._axial_stiffness_to_node(plate, local_node)
+            if k_end <= 0.0 or k_total <= 0.0:
+                continue
+            global_node = plate.first_row + local_node
+            prev_dof = self._dof[(plate_index, prev_segment)]
+            support_dof = self._dof[(plate_index, local_node)]
+            support_groups.setdefault(global_node, []).append((support_dof, prev_dof, k_end, k_total))
+
         fixed_dofs = [self._dof[(plate_index, local_node)] for plate_index, local_node, _ in supports]
         prescribed_values = [value for _, _, value in supports]
         if not fixed_dofs:
@@ -326,15 +375,90 @@ class Joint1D:
         free_dofs = [idx for idx in range(ndof) if idx not in fixed_dofs]
         stiffness_ff = extract_submatrix(stiffness_matrix, free_dofs, free_dofs)
         stiffness_fp = extract_submatrix(stiffness_matrix, free_dofs, fixed_dofs)
-        force_f = extract_vector(force_vector, free_dofs)
-        rhs = [force_f[i] - sum(stiffness_fp[i][j] * prescribed_values[j] for j in range(len(fixed_dofs))) for i in range(len(free_dofs))]
-        displacement_free = solve_dense(stiffness_ff, rhs)
 
-        displacements = [0.0 for _ in range(ndof)]
-        for idx, value in zip(free_dofs, displacement_free):
-            displacements[idx] = value
-        for idx, value in zip(fixed_dofs, prescribed_values):
-            displacements[idx] = value
+        def compute_displacements(current_force: List[float]) -> List[float]:
+            force_free = extract_vector(current_force, free_dofs)
+            rhs_local = [
+                force_free[i] - sum(stiffness_fp[i][j] * prescribed_values[j] for j in range(len(fixed_dofs)))
+                for i in range(len(free_dofs))
+            ]
+            displacement_free = solve_dense(stiffness_ff, rhs_local)
+            result = [0.0 for _ in range(ndof)]
+            for idx, value in zip(free_dofs, displacement_free):
+                result[idx] = value
+            for idx, value in zip(fixed_dofs, prescribed_values):
+                result[idx] = value
+            return result
+
+        displacements = compute_displacements(force_vector)
+
+        for _ in range(20):
+            corrections: Dict[int, float] = {}
+            for items in support_groups.values():
+                if len(items) < 2:
+                    continue
+                total_stiffness = sum(item[3] for item in items)
+                if total_stiffness <= 0.0:
+                    continue
+                totals: List[Tuple[int, float, float, float]] = []
+                total_force = 0.0
+                for support_dof, prev_dof, k_end, k_total in items:
+                    actual = k_end * (displacements[support_dof] - displacements[prev_dof])
+                    totals.append((prev_dof, k_end, k_total, actual))
+                    total_force += actual
+                if abs(total_force) <= 1e-9:
+                    continue
+                for prev_dof, k_end, k_total, actual in totals:
+                    weight = k_total / total_stiffness
+                    desired = total_force * weight
+                    delta = desired - actual
+                    if abs(delta) <= 1e-9:
+                        continue
+                    corrections[prev_dof] = corrections.get(prev_dof, 0.0) + delta
+
+            if not corrections:
+                break
+
+            for dof, delta in corrections.items():
+                force_vector[dof] -= delta
+
+            displacements = compute_displacements(force_vector)
+
+            if max(abs(delta) for delta in corrections.values()) <= 1e-8:
+                break
+
+        # redistribute support reactions according to axial stiffness where applicable
+        reaction_by_support: Dict[Tuple[int, int], float] = {}
+        for plate_index, local_node, _ in supports:
+            dof = self._dof[(plate_index, local_node)]
+            reaction = sum(stiffness_matrix[dof][j] * displacements[j] for j in range(ndof)) - force_vector[dof]
+            reaction_by_support[(plate_index, local_node)] = reaction
+
+        grouped: Dict[int, List[Tuple[int, int, float, float]]] = {}
+        for plate_index, local_node, _ in supports:
+            plate = self.plates[plate_index]
+            global_node = plate.first_row + local_node
+            stiffness = self._axial_stiffness_to_node(plate, local_node)
+            reaction = reaction_by_support[(plate_index, local_node)]
+            grouped.setdefault(global_node, []).append((plate_index, local_node, reaction, stiffness))
+
+        for items in grouped.values():
+            valid = [item for item in items if item[3] > 0.0]
+            if len(valid) < 2:
+                continue
+            total_reaction = sum(item[2] for item in valid)
+            total_stiffness = sum(item[3] for item in valid)
+            if abs(total_reaction) <= 1e-9 or total_stiffness <= 0.0:
+                continue
+            for plate_index, local_node, actual, stiffness in valid:
+                weight = stiffness / total_stiffness
+                desired = total_reaction * weight
+                delta = actual - desired
+                if abs(delta) <= 1e-9:
+                    continue
+                dof = self._dof[(plate_index, local_node)]
+                force_vector[dof] += delta
+                reaction_by_support[(plate_index, local_node)] = desired
 
         fastener_results: List[FastenerResult] = []
         for dof_i, dof_j, stiffness, row_index, plate_i, plate_j, compliance in springs:
@@ -362,18 +486,14 @@ class Joint1D:
                 flow_left = 0.0
                 left_segment = row_index - 1 - plate.first_row
                 if left_segment >= 0:
-                    length = self.pitches[plate.first_row - 1 + left_segment]
-                    area = plate.A_strip[left_segment]
-                    stiffness_bar = plate.E * area / length
+                    stiffness_bar = self._element_stiffness(plate, left_segment)
                     dof_left = self._dof[(plate_index, left_segment)]
                     dof_right = self._dof[(plate_index, left_segment + 1)]
                     flow_left = stiffness_bar * (displacements[dof_right] - displacements[dof_left])
                 flow_right = 0.0
                 right_segment = row_index - plate.first_row
                 if right_segment < segments:
-                    length = self.pitches[plate.first_row - 1 + right_segment]
-                    area = plate.A_strip[right_segment]
-                    stiffness_bar = plate.E * area / length
+                    stiffness_bar = self._element_stiffness(plate, right_segment)
                     dof_left = self._dof[(plate_index, right_segment)]
                     dof_right = self._dof[(plate_index, right_segment + 1)]
                     flow_right = stiffness_bar * (displacements[dof_right] - displacements[dof_left])
@@ -389,15 +509,11 @@ class Joint1D:
                 position = self._x[(plate_index, local_node)]
                 bypass_flow = 0.0
                 if local_node > 0:
-                    length = self.pitches[plate.first_row - 1 + (local_node - 1)]
-                    area = plate.A_strip[local_node - 1]
-                    stiffness_bar = plate.E * area / length
+                    stiffness_bar = self._element_stiffness(plate, local_node - 1)
                     dof_left = self._dof[(plate_index, local_node - 1)]
                     bypass_flow += stiffness_bar * (displacements[dof_index] - displacements[dof_left])
                 if local_node < segments:
-                    length = self.pitches[plate.first_row - 1 + local_node]
-                    area = plate.A_strip[local_node]
-                    stiffness_bar = plate.E * area / length
+                    stiffness_bar = self._element_stiffness(plate, local_node)
                     dof_right = self._dof[(plate_index, local_node + 1)]
                     bypass_flow += stiffness_bar * (displacements[dof_right] - displacements[dof_index])
                 bypass_flow *= 0.5
@@ -419,9 +535,7 @@ class Joint1D:
         for plate_index, plate in enumerate(self.plates):
             segments = plate.segment_count()
             for segment in range(segments):
-                length = self.pitches[plate.first_row - 1 + segment]
-                area = plate.A_strip[segment]
-                stiffness_bar = plate.E * area / length
+                stiffness_bar = self._element_stiffness(plate, segment)
                 dof_left = self._dof[(plate_index, segment)]
                 dof_right = self._dof[(plate_index, segment + 1)]
                 axial_force = stiffness_bar * (displacements[dof_right] - displacements[dof_left])
@@ -439,7 +553,9 @@ class Joint1D:
         reaction_results: List[ReactionResult] = []
         for plate_index, local_node, _ in supports:
             dof = self._dof[(plate_index, local_node)]
-            reaction = sum(stiffness_matrix[dof][j] * displacements[j] for j in range(ndof)) - force_vector[dof]
+            reaction = reaction_by_support.get((plate_index, local_node))
+            if reaction is None:
+                reaction = sum(stiffness_matrix[dof][j] * displacements[j] for j in range(ndof)) - force_vector[dof]
             plate = self.plates[plate_index]
             global_node = plate.first_row + local_node
             reaction_results.append(
