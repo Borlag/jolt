@@ -394,7 +394,7 @@ class Joint1D:
                     tj = thicknesses[lower_position]
                 ti = max(ti, 1e-12)
                 tj = max(tj, 1e-12)
-                compliance, stiffness = self._compliance_for_pair(
+                compliance_total, stiffness_total = self._compliance_for_pair(
                     fastener,
                     upper_plate,
                     lower_plate,
@@ -402,6 +402,12 @@ class Joint1D:
                     tj,
                     shear_planes,
                 )
+                if shear_planes > 1:
+                    compliance = compliance_total / shear_planes
+                    stiffness = stiffness_total * shear_planes
+                else:
+                    compliance = compliance_total
+                    stiffness = stiffness_total
                 stiffness_matrix[dof_upper][dof_upper] += stiffness
                 stiffness_matrix[dof_upper][dof_lower] -= stiffness
                 stiffness_matrix[dof_lower][dof_upper] -= stiffness
