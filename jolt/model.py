@@ -354,6 +354,36 @@ class Joint1D:
         stiffness_matrix = [[0.0 for _ in range(ndof)] for _ in range(ndof)]
         force_vector = [0.0 for _ in range(ndof)]
 
+        def _validate_support(plate_index: int, local_node: int) -> None:
+            if plate_index < 0 or plate_index >= len(self.plates):
+                raise ValueError(f"Support references invalid plate index {plate_index}")
+            segments = self.plates[plate_index].segment_count()
+            if local_node < 0 or local_node > segments:
+                raise ValueError(
+                    f"Support for plate '{self.plates[plate_index].name}' expects a local node between 0 and {segments};"
+                    f" received {local_node}"
+                )
+
+        def _validate_force(plate_index: int, local_node: int) -> None:
+            if plate_index < 0 or plate_index >= len(self.plates):
+                raise ValueError(f"Force references invalid plate index {plate_index}")
+            segments = self.plates[plate_index].segment_count()
+            if local_node < 0 or local_node > segments:
+                raise ValueError(
+                    f"Force for plate '{self.plates[plate_index].name}' expects a local node between 0 and {segments};"
+                    f" received {local_node}"
+                )
+
+        validated_supports = []
+        for plate_index, local_node, value in supports:
+            _validate_support(int(plate_index), int(local_node))
+            validated_supports.append((int(plate_index), int(local_node), float(value)))
+
+        validated_forces = []
+        for plate_index, local_node, value in point_forces:
+            _validate_force(int(plate_index), int(local_node))
+            validated_forces.append((int(plate_index), int(local_node), float(value)))
+
         for plate_index, plate in enumerate(self.plates):
             segments = plate.segment_count()
             if len(plate.A_strip) != segments:
@@ -407,11 +437,13 @@ class Joint1D:
                 stiffness_matrix[dof_lower][dof_lower] += stiffness
                 springs.append((dof_upper, dof_lower, stiffness, row_index, upper_idx, lower_idx, compliance))
 
-        for plate_index, local_node, magnitude in point_forces:
+        for plate_index, local_node, magnitude in validated_forces:
             force_vector[self._dof[(plate_index, local_node)]] += magnitude
 
-        fixed_dofs = [self._dof[(plate_index, local_node)] for plate_index, local_node, _ in supports]
-        prescribed_values = [value for _, _, value in supports]
+        fixed_dofs = [
+            self._dof[(plate_index, local_node)] for plate_index, local_node, _ in validated_supports
+        ]
+        prescribed_values = [value for _, _, value in validated_supports]
         if not fixed_dofs:
             raise ValueError("At least one support must be defined to avoid rigid body motion")
 
