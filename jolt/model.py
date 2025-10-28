@@ -226,6 +226,13 @@ class Joint1D:
         ti: float,
         tj: float,
         shear_planes: int,
+        *,
+        shear_ti: Optional[float] = None,
+        shear_tj: Optional[float] = None,
+        bending_ti: Optional[float] = None,
+        bending_tj: Optional[float] = None,
+        bearing_ti: Optional[float] = None,
+        bearing_tj: Optional[float] = None,
     ) -> Tuple[float, float]:
         if fastener.method == "Manual":
             if fastener.k_manual is None or fastener.k_manual <= 0.0:
@@ -242,6 +249,12 @@ class Joint1D:
                 fastener.nu_b,
                 fastener.D,
                 shear_planes=shear_planes,
+                shear_ti=shear_ti,
+                shear_tj=shear_tj,
+                bending_ti=bending_ti,
+                bending_tj=bending_tj,
+                bearing_ti=bearing_ti,
+                bearing_tj=bearing_tj,
             )
         elif fastener.method == "Huth_metal":
             shear_mode = "double" if shear_planes > 1 else "single"
@@ -279,6 +292,12 @@ class Joint1D:
                 fastener.nu_b,
                 fastener.D,
                 shear_planes=shear_planes,
+                shear_ti=shear_ti,
+                shear_tj=shear_tj,
+                bending_ti=bending_ti,
+                bending_tj=bending_tj,
+                bearing_ti=bearing_ti,
+                bearing_tj=bearing_tj,
             )
         stiffness = 1.0 / compliance if compliance > 0.0 else 1e12
         return compliance, stiffness
