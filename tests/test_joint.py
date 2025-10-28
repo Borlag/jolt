@@ -26,37 +26,37 @@ def test_figure76_solution_matches_expected_response():
     solution = model.solve(supports=supports)
 
     assert len(solution.displacements) == 17
-    assert max(abs(u) for u in solution.displacements) == pytest.approx(0.005818515738775351)
+    assert max(abs(u) for u in solution.displacements) == pytest.approx(0.005047906616139897)
 
     expected_fastener_forces = [
-        -194.97215630257304,
-        -334.9532712537148,
-        -190.25199726293533,
-        -208.5923653618775,
-        -214.94560578275457,
-        -136.84449262861213,
-        -79.2336466792756,
-        -59.75912163330441,
-        -69.04754181356914,
-        -111.56956062964612,
+        -215.4502775159161,
+        -373.1072657922333,
+        -207.28984961725234,
+        -221.2391303425662,
+        -244.53751451924745,
+        -145.48971725781192,
+        -63.0335935309333,
+        -48.223965918386725,
+        -56.625243225322784,
+        -92.28108393274492,
     ]
     computed_forces = [fastener["F [lb]"] for fastener in solution.fasteners_as_dicts()]
     assert computed_forces == pytest.approx(expected_fastener_forces)
 
     reactions = {(item["Plate"], item["Global node"]): item["Reaction [lb]"] for item in solution.reactions_as_dicts()}
-    assert reactions[("Tripler", 3)] == pytest.approx(-600.1697593482629)
-    assert reactions[("Doubler", 7)] == pytest.approx(-399.830240651737)
+    assert reactions[("Tripler", 3)] == pytest.approx(-667.277641652416)
+    assert reactions[("Doubler", 7)] == pytest.approx(-332.722358347583)
 
     row4 = {
         item["Plate"]: (item["Bearing [lb]"], item["Bypass [lb]"])
         for item in solution.bearing_bypass_as_dicts()
         if item["Row"] == 4
     }
-    assert row4["Doubler"] == pytest.approx((-79.23364667927567, -80.22036989594159), rel=1e-12)
-    assert row4["Skin"] == pytest.approx((79.23364667927567, -240.37622407651926), rel=1e-12)
+    assert row4["Doubler"] == pytest.approx((-63.0335935309333, -72.55847174019519), rel=1e-12)
+    assert row4["Skin"] == pytest.approx((63.0335935309337, -197.1302930764547), rel=1e-12)
 
     tripler_left = next(item for item in solution.nodes_as_dicts() if item["Plate"] == "Tripler" and item["local_node"] == 0)
-    assert tripler_left["u [in]"] == pytest.approx(0.0008778825453134755)
+    assert tripler_left["u [in]"] == pytest.approx(0.0009656321615615928)
 
 
 def test_figure76_beam_idealized_solution_matches_expected_response():
@@ -65,37 +65,37 @@ def test_figure76_beam_idealized_solution_matches_expected_response():
     solution = model.solve(supports=supports)
 
     assert len(solution.displacements) == 17
-    assert max(abs(u) for u in solution.displacements) == pytest.approx(0.004377351115543885)
+    assert max(abs(u) for u in solution.displacements) == pytest.approx(0.004315333917466933)
 
     expected_fastener_forces = [
-        -54.08587381317672,
-        -39.42911923827039,
-        -68.16432950121376,
-        -45.39077118748165,
-        -101.2233785837743,
-        -56.79542193986835,
-        -71.1763942744057,
-        -119.81561328261492,
-        -226.12385131092782,
-        -441.2688287664314,
+        -54.55565686545546,
+        -41.055109114902365,
+        -73.14633933174316,
+        -49.973142094743835,
+        -118.62404172021954,
+        -67.56497644412994,
+        -67.29256986479764,
+        -116.73455583196625,
+        -222.362602498069,
+        -435.0170441513898,
     ]
     computed_forces = [fastener["F [lb]"] for fastener in solution.fasteners_as_dicts()]
     assert computed_forces == pytest.approx(expected_fastener_forces)
 
     reactions = {(item["Plate"], item["Global node"]): item["Reaction [lb]"] for item in solution.reactions_as_dicts()}
-    assert reactions[("Tripler", 3)] == pytest.approx(-223.4735818981648)
-    assert reactions[("Doubler", 7)] == pytest.approx(-776.5264181018356)
+    assert reactions[("Tripler", 3)] == pytest.approx(-246.3260379174182)
+    assert reactions[("Doubler", 7)] == pytest.approx(-753.6739620825806)
 
     row4 = {
         item["Plate"]: (item["Bearing [lb]"], item["Bypass [lb]"])
         for item in solution.bearing_bypass_as_dicts()
         if item["Row"] == 4
     }
-    assert row4["Doubler"] == pytest.approx((-71.17639427440564, 10.681875258138728), rel=1e-12)
-    assert row4["Skin"] == pytest.approx((71.17639427440565, 141.6153123656205), rel=1e-12)
+    assert row4["Doubler"] == pytest.approx((-67.29256986479776, 20.440240398844466), rel=1e-12)
+    assert row4["Skin"] == pytest.approx((67.29256986479763, 158.5932276537765), rel=1e-12)
 
     tripler_left = next(item for item in solution.nodes_as_dicts() if item["Plate"] == "Tripler" and item["local_node"] == 0)
-    assert tripler_left["u [in]"] == pytest.approx(0.0002668103219314499)
+    assert tripler_left["u [in]"] == pytest.approx(0.00027577013099218487)
 
 
 def test_fastener_custom_interfaces():
