@@ -225,6 +225,7 @@ class Joint1D:
         bottom: Plate,
         ti: float,
         tj: float,
+        shear_planes: int,
     ) -> Tuple[float, float]:
         if fastener.method == "Manual":
             if fastener.k_manual is None or fastener.k_manual <= 0.0:
@@ -232,15 +233,53 @@ class Joint1D:
             stiffness = float(fastener.k_manual)
             return 1.0 / stiffness, stiffness
         if fastener.method == "Boeing69":
-            compliance = boeing69_compliance(ti, top.E, tj, bottom.E, fastener.Eb, fastener.nu_b, fastener.D)
+            compliance = boeing69_compliance(
+                ti,
+                top.E,
+                tj,
+                bottom.E,
+                fastener.Eb,
+                fastener.nu_b,
+                fastener.D,
+                shear_planes=shear_planes,
+            )
         elif fastener.method == "Huth_metal":
-            compliance = huth_compliance(ti, top.E, tj, bottom.E, fastener.Eb, fastener.D, "single", "bolted_metal")
+            shear_mode = "double" if shear_planes > 1 else "single"
+            compliance = huth_compliance(
+                ti,
+                top.E,
+                tj,
+                bottom.E,
+                fastener.Eb,
+                fastener.D,
+                shear_mode,
+                "bolted_metal",
+            )
         elif fastener.method == "Huth_graphite":
-            compliance = huth_compliance(ti, top.E, tj, bottom.E, fastener.Eb, fastener.D, "single", "bolted_graphite")
+            shear_mode = "double" if shear_planes > 1 else "single"
+            compliance = huth_compliance(
+                ti,
+                top.E,
+                tj,
+                bottom.E,
+                fastener.Eb,
+                fastener.D,
+                shear_mode,
+                "bolted_graphite",
+            )
         elif fastener.method == "Grumman":
             compliance = grumman_compliance(ti, top.E, tj, bottom.E, fastener.Eb, fastener.D)
         else:
-            compliance = boeing69_compliance(ti, top.E, tj, bottom.E, fastener.Eb, fastener.nu_b, fastener.D)
+            compliance = boeing69_compliance(
+                ti,
+                top.E,
+                tj,
+                bottom.E,
+                fastener.Eb,
+                fastener.nu_b,
+                fastener.D,
+                shear_planes=shear_planes,
+            )
         stiffness = 1.0 / compliance if compliance > 0.0 else 1e12
         return compliance, stiffness
 
@@ -321,19 +360,21 @@ class Joint1D:
             if not pairs:
                 continue
 
+            thicknesses = [max(self.plates[idx].t, 0.0) for idx in present]
             cumulative_top: List[float] = []
-            total = 0.0
-            for plate_idx in present:
-                thickness = max(self.plates[plate_idx].t, 0.0)
-                total += thickness
-                cumulative_top.append(total)
+            running = 0.0
+            for value in thicknesses:
+                running += value
+                cumulative_top.append(running)
 
             cumulative_bottom: List[float] = [0.0] * len(present)
-            total = 0.0
-            for position, plate_idx in enumerate(reversed(present)):
-                thickness = max(self.plates[plate_idx].t, 0.0)
-                total += thickness
-                cumulative_bottom[len(present) - 1 - position] = total
+            running = 0.0
+            for offset, value in enumerate(reversed(thicknesses)):
+                running += value
+                cumulative_bottom[len(present) - 1 - offset] = running
+
+            shear_planes = max(len(present) - 1, 1)
+            half_thickness = [value * 0.5 for value in thicknesses]
 
             position_map = {plate_idx: idx for idx, plate_idx in enumerate(present)}
             for upper_idx, lower_idx in pairs:
@@ -345,11 +386,22 @@ class Joint1D:
                 dof_lower = self._dof[(lower_idx, local_lower)]
                 upper_position = position_map[upper_idx]
                 lower_position = position_map[lower_idx]
-                ti = cumulative_top[upper_position]
-                tj = cumulative_bottom[lower_position]
+                if shear_planes > 1:
+                    ti = cumulative_top[upper_position] - half_thickness[upper_position]
+                    tj = cumulative_bottom[lower_position] - half_thickness[lower_position]
+                else:
+                    ti = thicknesses[upper_position]
+                    tj = thicknesses[lower_position]
                 ti = max(ti, 1e-12)
                 tj = max(tj, 1e-12)
-                compliance, stiffness = self._compliance_for_pair(fastener, upper_plate, lower_plate, ti, tj)
+                compliance, stiffness = self._compliance_for_pair(
+                    fastener,
+                    upper_plate,
+                    lower_plate,
+                    ti,
+                    tj,
+                    shear_planes,
+                )
                 stiffness_matrix[dof_upper][dof_upper] += stiffness
                 stiffness_matrix[dof_upper][dof_lower] -= stiffness
                 stiffness_matrix[dof_lower][dof_upper] -= stiffness
