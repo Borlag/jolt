@@ -25,8 +25,8 @@ def figure76_example() -> Tuple[List[float], List[Plate], List[FastenerRow], Lis
         for row in range(1, 8)
     ]
     supports = [
-        (0, 5, 0.0),
-        (1, 5, 0.0),
+        (0, 2, 0.0),
+        (1, 6, 0.0),
     ]
     return pitches, plates, fasteners, supports
 
