@@ -13,6 +13,8 @@ def boeing69_compliance(
     Eb: float,
     nu_b: float,
     diameter: float,
+    *,
+    shear_planes: int = 1,
 ) -> float:
     """Return fastener compliance according to Boeing (1969).
 
@@ -29,7 +31,8 @@ def boeing69_compliance(
     term_bending = (
         ti**3 + 5.0 * ti**2 * tj + 5.0 * ti * tj**2 + tj**3
     ) / (40.0 * Eb * inertia_bolt)
-    term_bearing = (1.0 / ti) * (1.0 / Eb + 1.0 / Ei) + (1.0 / tj) * (1.0 / Eb + 1.0 / Ej)
+    bearing_divisor = float(1 if shear_planes <= 1 else 2 * shear_planes)
+    term_bearing = ((1.0 / ti) * (1.0 / Eb + 1.0 / Ei) + (1.0 / tj) * (1.0 / Eb + 1.0 / Ej)) / bearing_divisor
     return term_shear + term_bending + term_bearing
 
 
