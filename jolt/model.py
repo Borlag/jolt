@@ -318,6 +318,24 @@ class Joint1D:
             row_index = fastener.row
             present = self._plates_at_row(row_index)
             pairs = self._resolve_fastener_pairs(fastener, row_index, present)
+            if not pairs:
+                continue
+
+            cumulative_top: List[float] = []
+            total = 0.0
+            for plate_idx in present:
+                thickness = max(self.plates[plate_idx].t, 0.0)
+                total += thickness
+                cumulative_top.append(total)
+
+            cumulative_bottom: List[float] = [0.0] * len(present)
+            total = 0.0
+            for position, plate_idx in enumerate(reversed(present)):
+                thickness = max(self.plates[plate_idx].t, 0.0)
+                total += thickness
+                cumulative_bottom[len(present) - 1 - position] = total
+
+            position_map = {plate_idx: idx for idx, plate_idx in enumerate(present)}
             for upper_idx, lower_idx in pairs:
                 upper_plate = self.plates[upper_idx]
                 lower_plate = self.plates[lower_idx]
@@ -325,8 +343,12 @@ class Joint1D:
                 local_lower = row_index - lower_plate.first_row
                 dof_upper = self._dof[(upper_idx, local_upper)]
                 dof_lower = self._dof[(lower_idx, local_lower)]
-                ti = upper_plate.t
-                tj = lower_plate.t
+                upper_position = position_map[upper_idx]
+                lower_position = position_map[lower_idx]
+                ti = cumulative_top[upper_position]
+                tj = cumulative_bottom[lower_position]
+                ti = max(ti, 1e-12)
+                tj = max(tj, 1e-12)
                 compliance, stiffness = self._compliance_for_pair(fastener, upper_plate, lower_plate, ti, tj)
                 stiffness_matrix[dof_upper][dof_upper] += stiffness
                 stiffness_matrix[dof_upper][dof_lower] -= stiffness
