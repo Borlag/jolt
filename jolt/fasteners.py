@@ -15,24 +15,45 @@ def boeing69_compliance(
     diameter: float,
     *,
     shear_planes: int = 1,
+    shear_ti: float | None = None,
+    shear_tj: float | None = None,
+    bending_ti: float | None = None,
+    bending_tj: float | None = None,
+    bearing_ti: float | None = None,
+    bearing_tj: float | None = None,
 ) -> float:
     """Return fastener compliance according to Boeing (1969).
 
     The formulation follows D6-29942 where the constant is expressed as a
     compliance value ``C_F`` [in/lb].  The stiffness is the reciprocal of the
-    returned value.
+    returned value.  ``shear_t*`` and ``bending_t*`` allow the caller to
+    override the grip length used in the shear and bending terms, while
+    ``bearing_t*`` overrides the thickness used in the bearing contribution.
     """
 
     area_bolt = math.pi * diameter**2 / 4.0
     inertia_bolt = math.pi * diameter**4 / 64.0
     shear_modulus = Eb / (2.0 * (1.0 + nu_b))
 
-    term_shear = 4.0 * (ti + tj) / (9.0 * shear_modulus * area_bolt)
+    ti_shear = shear_ti if shear_ti is not None else ti
+    tj_shear = shear_tj if shear_tj is not None else tj
+    term_shear = 4.0 * (ti_shear + tj_shear) / (9.0 * shear_modulus * area_bolt)
+
+    ti_bending = bending_ti if bending_ti is not None else ti
+    tj_bending = bending_tj if bending_tj is not None else tj
     term_bending = (
-        ti**3 + 5.0 * ti**2 * tj + 5.0 * ti * tj**2 + tj**3
+        ti_bending**3
+        + 5.0 * ti_bending**2 * tj_bending
+        + 5.0 * ti_bending * tj_bending**2
+        + tj_bending**3
     ) / (40.0 * Eb * inertia_bolt)
     bearing_divisor = float(1 if shear_planes <= 1 else 2 * shear_planes)
-    term_bearing = ((1.0 / ti) * (1.0 / Eb + 1.0 / Ei) + (1.0 / tj) * (1.0 / Eb + 1.0 / Ej)) / bearing_divisor
+    ti_bearing = bearing_ti if bearing_ti is not None else ti
+    tj_bearing = bearing_tj if bearing_tj is not None else tj
+    term_bearing = (
+        (1.0 / ti_bearing) * (1.0 / Eb + 1.0 / Ei)
+        + (1.0 / tj_bearing) * (1.0 / Eb + 1.0 / Ej)
+    ) / bearing_divisor
     return term_shear + term_bending + term_bearing
 
 
