@@ -218,22 +218,6 @@ class Joint1D:
         present.sort()
         return present
 
-    def _grip_lengths(self, present: Sequence[int]) -> Tuple[Dict[int, float], Dict[int, float]]:
-        above: Dict[int, float] = {}
-        below: Dict[int, float] = {}
-        cumulative = 0.0
-        thicknesses = [self.plates[idx].t for idx in present]
-        totals: List[float] = []
-        for contribution, plate_idx in zip(thicknesses, present):
-            cumulative += contribution
-            totals.append(cumulative)
-            above[plate_idx] = cumulative
-        total_thickness = cumulative
-        for position, plate_idx in enumerate(present):
-            prior = totals[position - 1] if position > 0 else 0.0
-            below[plate_idx] = total_thickness - prior
-        return above, below
-
     def _compliance_for_pair(
         self,
         fastener: FastenerRow,
@@ -334,7 +318,6 @@ class Joint1D:
             row_index = fastener.row
             present = self._plates_at_row(row_index)
             pairs = self._resolve_fastener_pairs(fastener, row_index, present)
-            above, below = self._grip_lengths(present)
             for upper_idx, lower_idx in pairs:
                 upper_plate = self.plates[upper_idx]
                 lower_plate = self.plates[lower_idx]
@@ -342,8 +325,8 @@ class Joint1D:
                 local_lower = row_index - lower_plate.first_row
                 dof_upper = self._dof[(upper_idx, local_upper)]
                 dof_lower = self._dof[(lower_idx, local_lower)]
-                ti = above[upper_idx]
-                tj = below[lower_idx]
+                ti = upper_plate.t
+                tj = lower_plate.t
                 compliance, stiffness = self._compliance_for_pair(fastener, upper_plate, lower_plate, ti, tj)
                 stiffness_matrix[dof_upper][dof_upper] += stiffness
                 stiffness_matrix[dof_upper][dof_lower] -= stiffness
