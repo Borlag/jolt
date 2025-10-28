@@ -360,22 +360,6 @@ class Joint1D:
             if not pairs:
                 continue
 
-            thicknesses = [max(self.plates[idx].t, 0.0) for idx in present]
-            cumulative_top: List[float] = []
-            running = 0.0
-            for value in thicknesses:
-                running += value
-                cumulative_top.append(running)
-
-            cumulative_bottom: List[float] = [0.0] * len(present)
-            running = 0.0
-            for offset, value in enumerate(reversed(thicknesses)):
-                running += value
-                cumulative_bottom[len(present) - 1 - offset] = running
-
-            shear_planes = max(len(present) - 1, 1)
-            half_thickness = [value * 0.5 for value in thicknesses]
-
             position_map = {plate_idx: idx for idx, plate_idx in enumerate(present)}
             for upper_idx, lower_idx in pairs:
                 upper_plate = self.plates[upper_idx]
@@ -386,28 +370,18 @@ class Joint1D:
                 dof_lower = self._dof[(lower_idx, local_lower)]
                 upper_position = position_map[upper_idx]
                 lower_position = position_map[lower_idx]
-                if shear_planes > 1:
-                    ti = cumulative_top[upper_position] - half_thickness[upper_position]
-                    tj = cumulative_bottom[lower_position] - half_thickness[lower_position]
-                else:
-                    ti = thicknesses[upper_position]
-                    tj = thicknesses[lower_position]
-                ti = max(ti, 1e-12)
-                tj = max(tj, 1e-12)
+                ti = max(upper_plate.t, 1e-12)
+                tj = max(lower_plate.t, 1e-12)
                 compliance_total, stiffness_total = self._compliance_for_pair(
                     fastener,
                     upper_plate,
                     lower_plate,
                     ti,
                     tj,
-                    shear_planes,
+                    1,
                 )
-                if shear_planes > 1:
-                    compliance = compliance_total / shear_planes
-                    stiffness = stiffness_total * shear_planes
-                else:
-                    compliance = compliance_total
-                    stiffness = stiffness_total
+                compliance = compliance_total
+                stiffness = stiffness_total
                 stiffness_matrix[dof_upper][dof_upper] += stiffness
                 stiffness_matrix[dof_upper][dof_lower] -= stiffness
                 stiffness_matrix[dof_lower][dof_upper] -= stiffness
