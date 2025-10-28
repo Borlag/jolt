@@ -379,25 +379,7 @@ class Joint1D:
             if not pairs:
                 continue
 
-            if fastener.connections is None:
-                stack = present
-            else:
-                stack = sorted({plate_idx for pair in pairs for plate_idx in pair})
-            position_map = {plate_idx: idx for idx, plate_idx in enumerate(stack)}
-            cumulative_top: List[float] = []
-            half_thickness: List[float] = []
-            running = 0.0
-            for plate_idx in stack:
-                thickness = self.plates[plate_idx].t
-                running += thickness
-                cumulative_top.append(running)
-                half_thickness.append(0.5 * thickness)
-            cumulative_bottom: List[float] = [0.0] * len(stack)
-            running = 0.0
-            for offset, plate_idx in enumerate(reversed(stack)):
-                thickness = self.plates[plate_idx].t
-                running += thickness
-                cumulative_bottom[len(stack) - 1 - offset] = running
+            position_map = {plate_idx: idx for idx, plate_idx in enumerate(present)}
             for upper_idx, lower_idx in pairs:
                 upper_plate = self.plates[upper_idx]
                 lower_plate = self.plates[lower_idx]
@@ -407,34 +389,15 @@ class Joint1D:
                 dof_lower = self._dof[(lower_idx, local_lower)]
                 upper_position = position_map[upper_idx]
                 lower_position = position_map[lower_idx]
-
-                # Use the actual distance from the interface to the outer
-                # surfaces on each side of the fastener.  For multi-layer
-                # stacks this captures the additional grip length contributed
-                # by plates that sit above or below the selected pair.
-                ti_grip = cumulative_top[upper_position]
-                tj_grip = cumulative_top[-1] - (cumulative_top[lower_position - 1] if lower_position > 0 else 0.0)
-                ti_grip = max(ti_grip, 1e-12)
-                tj_grip = max(tj_grip, 1e-12)
-                ti_centroid = cumulative_top[upper_position] - half_thickness[upper_position]
-                tj_centroid = cumulative_bottom[lower_position] - half_thickness[lower_position]
-                ti_centroid = max(ti_centroid, 1e-12)
-                tj_centroid = max(tj_centroid, 1e-12)
-                ti_plate = max(upper_plate.t, 1e-12)
-                tj_plate = max(lower_plate.t, 1e-12)
+                ti = max(upper_plate.t, 1e-12)
+                tj = max(lower_plate.t, 1e-12)
                 compliance_total, stiffness_total = self._compliance_for_pair(
                     fastener,
                     upper_plate,
                     lower_plate,
-                    ti_plate,
-                    tj_plate,
+                    ti,
+                    tj,
                     1,
-                    shear_ti=ti_grip,
-                    shear_tj=tj_grip,
-                    bending_ti=ti_centroid,
-                    bending_tj=tj_centroid,
-                    bearing_ti=ti_plate,
-                    bearing_tj=tj_plate,
                 )
                 compliance = compliance_total
                 stiffness = stiffness_total
