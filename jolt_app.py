@@ -784,7 +784,12 @@ with st.sidebar:
             fastener.D = c1.number_input("Diameter d [in]", 0.01, 2.0, fastener.D, key=f"fr_d_{idx}", step=0.001, format="%.3f")
             fastener.Eb = c2.number_input("Bolt E [psi]", 1e5, 5e8, fastener.Eb, key=f"fr_Eb_{idx}", step=1e5, format="%.0f")
             fastener.nu_b = c3.number_input("Bolt ν", 0.0, 0.49, fastener.nu_b, key=f"fr_nu_{idx}", step=0.01, format="%.2f")
-            fastener.method = c4.selectbox("Method", methods, index=methods.index(fastener.method), key=f"fr_m_{idx}")
+            try:
+                method_index = methods.index(fastener.method)
+            except ValueError:
+                method_index = 0
+                fastener.method = methods[method_index]
+            fastener.method = c4.selectbox("Method", methods, index=method_index, key=f"fr_m_{idx}")
             if fastener.method == "Manual":
                 fastener.k_manual = st.number_input(
                     "Manual k [lb/in]", 1.0, 1e12, fastener.k_manual or 1.0e6, key=f"fr_km_{idx}", step=1e5, format="%.0f"

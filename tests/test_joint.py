@@ -12,6 +12,7 @@ from jolt import (
     load_joint_from_json,
     figure76_beam_idealized_example,
 )
+from jolt.config import fastener_from_dict
 
 
 def test_boeing69_compliance_matches_reference_value():
@@ -59,6 +60,19 @@ def test_figure76_solution_matches_expected_response():
         item for item in solution.nodes_as_dicts() if item["Plate"] == "Tripler" and item["local_node"] == 0
     )
     assert tripler_left["u [in]"] == pytest.approx(0.0014790337755509028)
+
+
+def test_fastener_from_dict_normalizes_method_names():
+    base_data = {"row": 2, "D": 0.25, "Eb": 1.0e7, "nu_b": 0.3}
+
+    manual = fastener_from_dict({**base_data, "method": "manual"})
+    assert manual.method == "Manual"
+
+    graphite = fastener_from_dict({**base_data, "method": "Huth-Graphite"})
+    assert graphite.method == "Huth_graphite"
+
+    defaulted = fastener_from_dict({**base_data, "method": "unknown"})
+    assert defaulted.method == "Boeing69"
 
 
 def test_figure76_beam_idealized_solution_matches_expected_response():
