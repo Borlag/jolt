@@ -851,6 +851,8 @@ with st.sidebar:
     load_feedback = st.session_state.pop("_load_feedback", None)
     if load_feedback:
         st.success(load_feedback)
+    if st.session_state.pop("_reset_cfg_upload", False):
+        st.session_state.pop("cfg_upload", None)
     uploaded_file = st.file_uploader("Load configuration JSON", type="json", key="cfg_upload")
     if uploaded_file is not None:
         try:
@@ -864,7 +866,7 @@ with st.sidebar:
             st.session_state["_load_feedback"] = (
                 f"Loaded configuration '{configuration.label or display_name}'."
             )
-            st.session_state["cfg_upload"] = None
+            st.session_state["_reset_cfg_upload"] = True
             st.rerun()
     saved_configs = st.session_state.saved_models
     if saved_configs:
