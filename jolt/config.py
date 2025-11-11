@@ -8,6 +8,40 @@ from typing import Any, Dict, Iterable, IO, List, Optional, Sequence, Tuple, Uni
 
 from .model import FastenerRow, Joint1D, Plate
 
+_DEFAULT_FASTENER_METHOD = "Boeing69"
+_FASTENER_METHOD_ALIASES = {
+    "boeing69": "Boeing69",
+    "boeing_69": "Boeing69",
+    "boeing-69": "Boeing69",
+    "boeing": "Boeing69",
+    "huth_metal": "Huth_metal",
+    "huth-metal": "Huth_metal",
+    "huthmetal": "Huth_metal",
+    "huth_graphite": "Huth_graphite",
+    "huth-graphite": "Huth_graphite",
+    "huthgraphite": "Huth_graphite",
+    "grumman": "Grumman",
+    "manual": "Manual",
+}
+
+
+def _normalize_fastener_method(value: Any) -> str:
+    """Return a canonical fastener method name.
+
+    Saved configurations created by older versions of the app (or edited by hand)
+    may store method identifiers that do not exactly match the keys used by the
+    UI.  Falling back to a known method avoids hard failures when loading such
+    data.  The Boeing 69 formulation is used as a conservative default when the
+    value cannot be resolved.
+    """
+
+    if not isinstance(value, str):
+        return _DEFAULT_FASTENER_METHOD
+
+    normalized = value.strip().lower()
+    normalized = normalized.replace(" ", "_").replace("-", "_")
+    return _FASTENER_METHOD_ALIASES.get(normalized, _DEFAULT_FASTENER_METHOD)
+
 Supports = List[Tuple[int, int, float]]
 PointForces = List[Tuple[int, int, float]]
 _JSONSource = Union[str, Path, IO[str]]
@@ -80,12 +114,14 @@ def fastener_from_dict(data: Dict[str, Any]) -> FastenerRow:
             connections = resolved
 
     k_manual = data.get("k_manual")
+    method = _normalize_fastener_method(data.get("method", _DEFAULT_FASTENER_METHOD))
+
     return FastenerRow(
         row=int(data.get("row", 1)),
         D=float(data.get("D", 0.0)),
         Eb=float(data.get("Eb", 0.0)),
         nu_b=float(data.get("nu_b", 0.0)),
-        method=str(data.get("method", "Boeing69")),
+        method=method,
         k_manual=float(k_manual) if k_manual is not None else None,
         connections=connections,
     )
