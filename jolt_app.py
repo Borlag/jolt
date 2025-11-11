@@ -87,6 +87,38 @@ def _resolve_fastener_connections(
         resolved.append(key)
 
     return resolved
+
+
+def _clear_configuration_widget_state() -> None:
+    """Remove cached widget values that conflict with a newly loaded model."""
+
+    prefixes = [
+        "n_rows",
+        "pitch_",
+        "pl_name_",
+        "pl_E_",
+        "pl_t_",
+        "pl_fr_",
+        "pl_lr_",
+        "pl_A_",
+        "sameA_",
+        "pl_Fl_",
+        "pl_Fr_",
+        "fr_row_",
+        "fr_d_",
+        "fr_Eb_",
+        "fr_nu_",
+        "fr_m_",
+        "fr_km_",
+        "fr_conn_",
+        "sp_pi_",
+        "sp_ln_",
+        "sp_val_",
+    ]
+
+    for key in list(st.session_state.keys()):
+        if any(key.startswith(prefix) for prefix in prefixes):
+            st.session_state.pop(key, None)
 def _serialize_configuration(
     pitches: Sequence[float],
     plates: Sequence[Plate],
@@ -115,13 +147,15 @@ def _apply_configuration(config: Union[Dict[str, Any], JointConfiguration]) -> J
     configuration = (
         config if isinstance(config, JointConfiguration) else JointConfiguration.from_dict(config)
     )
-    st.session_state.pitches = configuration.pitches
-    st.session_state.plates = configuration.plates
-    st.session_state.fasteners = configuration.fasteners
-    st.session_state.supports = configuration.supports
-    st.session_state.point_forces = configuration.point_forces
+    _clear_configuration_widget_state()
+    st.session_state.pitches = list(configuration.pitches)
+    st.session_state.plates = list(configuration.plates)
+    st.session_state.fasteners = list(configuration.fasteners)
+    st.session_state.supports = list(configuration.supports)
+    st.session_state.point_forces = list(configuration.point_forces)
     st.session_state.config_label = configuration.label or "Case"
     st.session_state.config_unloading = configuration.unloading
+    st.session_state["n_rows"] = len(st.session_state.pitches)
     return configuration
     st.session_state.config_label = str(config.get("label", "Case"))
     st.session_state.config_unloading = str(config.get("unloading", ""))
@@ -550,6 +584,7 @@ if "pitches" not in st.session_state:
         st.session_state.fasteners,
         st.session_state.supports,
     ) = load_example_figure76()
+    st.session_state["n_rows"] = len(st.session_state.pitches)
 
 if "saved_models" not in st.session_state:
     st.session_state.saved_models: List[Dict[str, Any]] = []
@@ -565,7 +600,16 @@ if "point_forces" not in st.session_state:
 
 with st.sidebar:
     st.header("Geometry")
-    n_rows = st.number_input("Number of rows", 1, 50, len(st.session_state.pitches))
+    default_rows = len(st.session_state.pitches)
+    n_rows = int(
+        st.number_input(
+            "Number of rows",
+            1,
+            50,
+            st.session_state.get("n_rows", default_rows),
+            key="n_rows",
+        )
+    )
     if n_rows != len(st.session_state.pitches):
         if n_rows > len(st.session_state.pitches):
             last = st.session_state.pitches[-1]
@@ -804,7 +848,22 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Saved configurations")
-    uploaded_file = st.file_uploader("Load configuration JSON", type="json", key="cfg_upload")
+    load_feedback = st.session_state.pop("_load_feedback", None)
+    if load_feedback:
+        st.success(load_feedback)
+
+    if "_cfg_upload_seq" not in st.session_state:
+        st.session_state["_cfg_upload_seq"] = 0
+        st.session_state["_cfg_upload_key"] = "cfg_upload_0"
+
+    if st.session_state.pop("_reset_cfg_upload", False):
+        previous_key = st.session_state["_cfg_upload_key"]
+        st.session_state.pop(previous_key, None)
+        st.session_state["_cfg_upload_seq"] += 1
+        st.session_state["_cfg_upload_key"] = f"cfg_upload_{st.session_state['_cfg_upload_seq']}"
+
+    uploader_key = st.session_state["_cfg_upload_key"]
+    uploaded_file = st.file_uploader("Load configuration JSON", type="json", key=uploader_key)
     if uploaded_file is not None:
         try:
             configuration = JointConfiguration.from_json(uploaded_file)
@@ -814,10 +873,10 @@ with st.sidebar:
             display_name = getattr(uploaded_file, "name", "uploaded")
             _apply_configuration(configuration)
             st.session_state["_last_loaded_config"] = configuration.label or display_name
-            st.success(
+            st.session_state["_load_feedback"] = (
                 f"Loaded configuration '{configuration.label or display_name}'."
             )
-            st.session_state.pop("cfg_upload", None)
+            st.session_state["_reset_cfg_upload"] = True
             st.rerun()
     saved_configs = st.session_state.saved_models
     if saved_configs:
@@ -833,6 +892,9 @@ with st.sidebar:
         if load_col.button("Load", key="load_saved_config"):
             configuration = _apply_configuration(chosen)
             st.session_state["_last_loaded_config"] = configuration.label or chosen["label"]
+            st.session_state["_load_feedback"] = (
+                f"Loaded configuration '{configuration.label or chosen['label']}'."
+            )
             st.rerun()
         if delete_col.button("Delete", key="delete_saved_config"):
             st.session_state.saved_models.pop(selected_idx)
@@ -853,6 +915,7 @@ with st.sidebar:
 
     st.divider()
     if st.button("Load ▶ JOLT Figure 76"):
+        _clear_configuration_widget_state()
         (
             st.session_state.pitches,
             st.session_state.plates,
@@ -863,6 +926,7 @@ with st.sidebar:
         st.session_state.config_label = "JOLT Figure 76"
         st.session_state.config_unloading = ""
         st.session_state["_last_loaded_config"] = "JOLT Figure 76"
+        st.session_state["n_rows"] = len(st.session_state.pitches)
         st.rerun()
 
 
@@ -1004,6 +1068,9 @@ if st.button("Solve", type="primary"):
             unloading=unloading_note,
             point_forces=st.session_state.get("point_forces", []),
         )
+        feedback = st.session_state.pop("_save_feedback", None)
+        if feedback:
+            st.success(feedback)
         save_col, download_col = st.columns([1, 1])
         if save_col.button("💾 Save to session", key="save_cfg_button"):
             st.session_state.config_label = label
@@ -1011,10 +1078,11 @@ if st.button("Solve", type="primary"):
             existing = next((idx for idx, cfg in enumerate(st.session_state.saved_models) if cfg["label"] == label), None)
             if existing is not None:
                 st.session_state.saved_models[existing] = config_dict
-                st.success(f"Updated saved configuration '{label}'.")
+                st.session_state["_save_feedback"] = f"Updated saved configuration '{label}'."
             else:
                 st.session_state.saved_models.append(config_dict)
-                st.success(f"Saved configuration '{label}'.")
+                st.session_state["_save_feedback"] = f"Saved configuration '{label}'."
+            st.rerun()
         download_payload = json.dumps(config_dict, indent=2).encode("utf-8")
         file_stub = label.strip().replace(" ", "_") or "configuration"
         download_col.download_button(
