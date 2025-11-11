@@ -851,19 +851,7 @@ with st.sidebar:
     load_feedback = st.session_state.pop("_load_feedback", None)
     if load_feedback:
         st.success(load_feedback)
-
-    if "_cfg_upload_seq" not in st.session_state:
-        st.session_state["_cfg_upload_seq"] = 0
-        st.session_state["_cfg_upload_key"] = "cfg_upload_0"
-
-    if st.session_state.pop("_reset_cfg_upload", False):
-        previous_key = st.session_state["_cfg_upload_key"]
-        st.session_state.pop(previous_key, None)
-        st.session_state["_cfg_upload_seq"] += 1
-        st.session_state["_cfg_upload_key"] = f"cfg_upload_{st.session_state['_cfg_upload_seq']}"
-
-    uploader_key = st.session_state["_cfg_upload_key"]
-    uploaded_file = st.file_uploader("Load configuration JSON", type="json", key=uploader_key)
+    uploaded_file = st.file_uploader("Load configuration JSON", type="json", key="cfg_upload")
     if uploaded_file is not None:
         try:
             configuration = JointConfiguration.from_json(uploaded_file)
@@ -876,7 +864,7 @@ with st.sidebar:
             st.session_state["_load_feedback"] = (
                 f"Loaded configuration '{configuration.label or display_name}'."
             )
-            st.session_state["_reset_cfg_upload"] = True
+            st.session_state["cfg_upload"] = None
             st.rerun()
     saved_configs = st.session_state.saved_models
     if saved_configs:
