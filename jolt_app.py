@@ -1,6 +1,7 @@
 """Streamlit application for the JOLT 1D joint model."""
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import defaultdict
 from dataclasses import replace
@@ -37,6 +38,9 @@ from jolt import (
 
 
 st.set_page_config(page_title="JOLT 1D Joint", layout="wide")
+
+
+_UPLOAD_DIGEST_KEY = "_cfg_upload_digest"
 
 
 def _plates_present_at_row(plates: Sequence[Plate], row_index: int) -> List[int]:
@@ -784,7 +788,12 @@ with st.sidebar:
             fastener.D = c1.number_input("Diameter d [in]", 0.01, 2.0, fastener.D, key=f"fr_d_{idx}", step=0.001, format="%.3f")
             fastener.Eb = c2.number_input("Bolt E [psi]", 1e5, 5e8, fastener.Eb, key=f"fr_Eb_{idx}", step=1e5, format="%.0f")
             fastener.nu_b = c3.number_input("Bolt ν", 0.0, 0.49, fastener.nu_b, key=f"fr_nu_{idx}", step=0.01, format="%.2f")
-            fastener.method = c4.selectbox("Method", methods, index=methods.index(fastener.method), key=f"fr_m_{idx}")
+            try:
+                method_index = methods.index(fastener.method)
+            except ValueError:
+                method_index = 0
+                fastener.method = methods[method_index]
+            fastener.method = c4.selectbox("Method", methods, index=method_index, key=f"fr_m_{idx}")
             if fastener.method == "Manual":
                 fastener.k_manual = st.number_input(
                     "Manual k [lb/in]", 1.0, 1e12, fastener.k_manual or 1.0e6, key=f"fr_km_{idx}", step=1e5, format="%.0f"
@@ -854,20 +863,29 @@ with st.sidebar:
     if st.session_state.pop("_reset_cfg_upload", False):
         st.session_state.pop("cfg_upload", None)
     uploaded_file = st.file_uploader("Load configuration JSON", type="json", key="cfg_upload")
-    if uploaded_file is not None:
-        try:
-            configuration = JointConfiguration.from_json(uploaded_file)
-        except Exception as exc:  # pragma: no cover - UI feedback
-            st.error(f"Failed to load configuration: {exc}")
-        else:
-            display_name = getattr(uploaded_file, "name", "uploaded")
-            _apply_configuration(configuration)
-            st.session_state["_last_loaded_config"] = configuration.label or display_name
-            st.session_state["_load_feedback"] = (
-                f"Loaded configuration '{configuration.label or display_name}'."
-            )
-            st.session_state["_reset_cfg_upload"] = True
-            st.rerun()
+    if uploaded_file is None:
+        st.session_state.pop(_UPLOAD_DIGEST_KEY, None)
+    else:
+        file_bytes = uploaded_file.getvalue()
+        digest = hashlib.sha256(file_bytes).hexdigest()
+        if st.session_state.get(_UPLOAD_DIGEST_KEY) != digest:
+            try:
+                payload = json.loads(file_bytes.decode("utf-8"))
+                if not isinstance(payload, dict):
+                    raise ValueError("Top-level JSON entry must be an object")
+                configuration = JointConfiguration.from_dict(payload)
+            except Exception as exc:  # pragma: no cover - UI feedback
+                st.error(f"Failed to load configuration: {exc}")
+            else:
+                display_name = getattr(uploaded_file, "name", "uploaded")
+                _apply_configuration(configuration)
+                st.session_state["_last_loaded_config"] = configuration.label or display_name
+                st.session_state["_load_feedback"] = (
+                    f"Loaded configuration '{configuration.label or display_name}'."
+                )
+                st.session_state["_reset_cfg_upload"] = True
+                st.session_state[_UPLOAD_DIGEST_KEY] = digest
+                st.rerun()
     saved_configs = st.session_state.saved_models
     if saved_configs:
         indices = list(range(len(saved_configs)))
