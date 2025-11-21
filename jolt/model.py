@@ -408,7 +408,6 @@ class Joint1D:
             pairs = self._resolve_fastener_pairs(fastener, row_index, present)
             if not pairs:
                 continue
-
             position_map = {plate_idx: idx for idx, plate_idx in enumerate(present)}
             for upper_idx, lower_idx in pairs:
                 upper_plate = self.plates[upper_idx]
@@ -421,6 +420,13 @@ class Joint1D:
                 lower_position = position_map[lower_idx]
                 ti = max(upper_plate.t, 1e-12)
                 tj = max(lower_plate.t, 1e-12)
+                
+                # Cap thickness at diameter for shear and bending terms
+                # This prevents thick plates from artificially lowering stiffness due to assumed bending length
+                D = fastener.D
+                ti_eff = min(ti, D) if D > 0 else ti
+                tj_eff = min(tj, D) if D > 0 else tj
+                
                 compliance_total, stiffness_total = self._compliance_for_pair(
                     fastener,
                     upper_plate,
@@ -428,6 +434,10 @@ class Joint1D:
                     ti,
                     tj,
                     1,
+                    shear_ti=ti_eff,
+                    shear_tj=tj_eff,
+                    bending_ti=ti_eff,
+                    bending_tj=tj_eff,
                 )
                 compliance = compliance_total
                 stiffness = stiffness_total

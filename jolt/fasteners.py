@@ -30,6 +30,11 @@ def boeing69_compliance(
     override the grip length used in the shear and bending terms, while
     ``bearing_t*`` overrides the thickness used in the bearing contribution.
     """
+    if diameter <= 0:
+        raise ValueError("Fastener diameter must be positive")
+    if Eb <= 0:
+        raise ValueError("Fastener modulus Eb must be positive")
+
 
     area_bolt = math.pi * diameter**2 / 4.0
     inertia_bolt = math.pi * diameter**4 / 64.0
