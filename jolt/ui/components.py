@@ -254,6 +254,7 @@ def _render_geometry_section():
             key=f"n_rows_v{st.session_state.get('_widget_version', 0)}",
         )
     )
+    st.session_state["n_rows"] = n_rows
     if n_rows != len(st.session_state.pitches):
         if n_rows > len(st.session_state.pitches):
             last = st.session_state.pitches[-1]
@@ -295,7 +296,7 @@ def _render_geometry_section():
         ]
 
 def _render_plates_section():
-    n_rows = st.session_state.get("n_rows", len(st.session_state.pitches))
+    n_rows = len(st.session_state.pitches)
     for idx, plate in enumerate(st.session_state.plates):
         with st.expander(f"Layer {idx}: {plate.name}", expanded=False):
             c1, c2, c3 = st.columns(3)
@@ -383,7 +384,7 @@ def _render_plates_section():
         st.session_state.plates.pop()
 
 def _render_fasteners_section():
-    n_rows = st.session_state.get("n_rows", len(st.session_state.pitches))
+    n_rows = len(st.session_state.pitches)
     fcols = st.columns([1, 3])
     with fcols[0]:
         if st.button("➕ Add fastener"):
