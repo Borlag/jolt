@@ -582,7 +582,7 @@ def render_solution_tables(solution: JointSolution):
         df_fast = pd.DataFrame(fastener_dicts)
         st.dataframe(
             df_fast.style.format({"CF [in/lb]": "{:.3e}", "k [lb/in]": "{:.3e}", "F [lb]": "{:.2f}"}),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
     else:
@@ -596,7 +596,7 @@ def render_solution_tables(solution: JointSolution):
             df_react = pd.DataFrame(reaction_dicts)
             st.dataframe(
                 df_react.style.format({"Reaction [lb]": "{:+.2f}"}),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         else:
@@ -616,7 +616,7 @@ def render_solution_tables(solution: JointSolution):
                     "Bypass Area [in^2]": "{:.3f}",
                 }
             ),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
     else:
@@ -628,7 +628,7 @@ def render_solution_tables(solution: JointSolution):
         df_bars = pd.DataFrame(bar_dicts)
         st.dataframe(
             df_bars.style.format({"Force [lb]": "{:.2f}", "k_bar [lb/in]": "{:.3e}", "E [psi]": "{:.3e}"}),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
     else:
@@ -640,7 +640,7 @@ def render_solution_tables(solution: JointSolution):
         df_bb = pd.DataFrame(bearing_dicts)
         st.dataframe(
             df_bb.style.format({"Bearing [lb]": "{:.2f}", "Bypass [lb]": "{:.2f}"}),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
     else:

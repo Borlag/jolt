@@ -1,54 +1,55 @@
-
 import math
+from jolt.fasteners import boeing69_compliance
 
-def boeing69_compliance(
-    ti: float,
-    Ei: float,
-    tj: float,
-    Ej: float,
-    Eb: float,
-    nu_b: float,
-    diameter: float,
-    shear_planes: int = 1,
-) -> float:
-    area_bolt = math.pi * diameter**2 / 4.0
-    inertia_bolt = math.pi * diameter**4 / 64.0
-    shear_modulus = Eb / (2.0 * (1.0 + nu_b))
+def calculate_single_stiffness(t, E, D, Eb, nu_b):
+    # Copied from my implementation (updated)
+    A_b = math.pi * (D / 2.0) ** 2
+    I_b = math.pi * (D / 2.0) ** 4 / 4.0
+    G_b = Eb / (2.0 * (1.0 + nu_b))
 
-    term_shear = 4.0 * (ti + tj) / (9.0 * shear_modulus * area_bolt)
+    C_shear = (4.0 * t) / (9.0 * G_b * A_b)
+    C_bending = (6.0 * t**3) / (40.0 * fastener.Eb * I_b) if 'fastener' in globals() else (6.0 * t**3) / (40.0 * Eb * I_b)
+    C_bearing = (1.0 / t) * (1.0 / Eb + 1.0 / E)
+            
+    compliance = C_shear + C_bending + C_bearing
+    return 1.0 / compliance
 
-    term_bending = (
-        ti**3
-        + 5.0 * ti**2 * tj
-        + 5.0 * ti * tj**2
-        + tj**3
-    ) / (40.0 * Eb * inertia_bolt)
+def compare():
+    # Parameters from Boeing Screenshot (Case 2?)
+    # Node 2003 (Top) t=0.140. Node 3003 (Middle) t=0.130.
+    t1 = 0.140
+    t2 = 0.130
+    E = 1.6e7 # From screenshot "Modulus 1.600E7"
+    D = 0.344 # From screenshot "Diameter 0.344"
+    Eb = 1.6e7 # Assuming bolt modulus same as plate? Or standard?
+    # Screenshot doesn't show Eb directly, but typically steel/Ti.
+    # Let's assume typical values if not given.
+    # Wait, screenshot says "Modulus 1.600E7". This is likely Plate E.
+    # Bolt E? If not specified, maybe same?
+    # Let's try to match 3.78e5.
     
-    bearing_divisor = float(1 if shear_planes <= 1 else 2 * shear_planes)
+    # If I use the values from the screenshot:
+    # t1=0.140, t2=0.130.
+    # Stiffness = 3.78e5.
     
-    term_bearing = (
-        (1.0 / ti) * (1.0 / Eb + 1.0 / Ei)
-        + (1.0 / tj) * (1.0 / Eb + 1.0 / Ej)
-    ) / bearing_divisor
+    # Let's assume Eb = 1.6e7 for now (Titanium?).
+    nu_b = 0.3 # Standard
     
-    compliance = term_shear + term_bending + term_bearing
-    return compliance
+    K_single_1 = calculate_single_stiffness(t1, E, D, Eb, nu_b)
+    K_single_2 = calculate_single_stiffness(t2, E, D, Eb, nu_b)
+    
+    # Check Mixed Case (Tripler-Doubler)
+    # t1=0.063, t2=0.040.
+    # Boeing Target: 1.21e5.
+    
+    K_single_1 = calculate_single_stiffness(t1, E, D, Eb, nu_b)
+    K_single_2 = calculate_single_stiffness(t2, E, D, Eb, nu_b)
+    
+    # Virtual Pair Stiffness
+    K_eff_mixed = 1.0 / (1.0/K_single_1 + 1.0/K_single_2)
+    
+    print(f"Boeing Target (Mixed): 1.21e5")
+    print(f"My Reported (Mixed): {K_eff_mixed:.2e}")
 
-Ei = 1.030e7
-Ej = 1.030e7
-Eb = 1.600e7
-D = 0.344
-nu_b = 0.33
-ti = 0.130
-
-target_k = 3.887e5
-
-print(f"Target Stiffness: {target_k:.4e}")
-print(f"{'tj':<10} | {'Stiffness':<15} | {'Diff':<15}")
-print("-" * 45)
-
-for t_val in [0.130, 0.140, 0.150, 0.160, 0.170, 0.180, 0.429]:
-    c = boeing69_compliance(ti, Ei, t_val, Ej, Eb, nu_b, D)
-    k = 1.0 / c
-    diff = k - target_k
-    print(f"{t_val:<10.3f} | {k:<15.4e} | {diff:<15.4e}")
+if __name__ == "__main__":
+    compare()

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
+import math
 from typing import Dict, List, Optional, Sequence, Tuple, Set
 
 from .fasteners import boeing69_compliance, grumman_compliance, huth_compliance
@@ -206,6 +207,12 @@ class Joint1D:
                 self._dof[(plate_index, local_node)] = ndof
                 self._x[(plate_index, local_node)] = position
                 ndof += 1
+        
+        # Add DOFs for fastener nodes (one per row)
+        for fastener in self.fasteners:
+            self._dof[("fastener", fastener.row)] = ndof
+            ndof += 1
+            
         return ndof
 
     # --- compliance helpers --------------------------------------------------------
@@ -302,6 +309,28 @@ class Joint1D:
         stiffness = 1.0 / compliance if compliance > 0.0 else 1e12
         return compliance, stiffness
 
+    def _calculate_single_stiffness(self, plate: Plate, fastener: FastenerRow) -> Tuple[float, float]:
+        """Calculate stiffness of a single plate connecting to the fastener node."""
+        t = plate.t
+        # Calculate fastener properties
+        A_b = math.pi * (fastener.D / 2.0) ** 2
+        I_b = math.pi * (fastener.D / 2.0) ** 4 / 4.0  # I = pi*r^4/4 = pi*(D/2)^4/4
+        G_b = fastener.Eb / (2.0 * (1.0 + fastener.nu_b))
+
+        # 1. Shear: Use full t (no cap). Pair formula is 4(ti+tj)/9GA. Single is 4t/9GA.
+        C_shear = (4.0 * t) / (9.0 * G_b * A_b)
+        
+        # 2. Bending: Use full t (no cap). Single is 6 t^3 / (40 Eb I).
+        # Note: 40 Eb I comes from the formula.
+        C_bending = (6.0 * t**3) / (40.0 * fastener.Eb * I_b)
+        
+        # 3. Bearing: Single plate bearing
+        C_bearing = (1.0 / t) * (1.0 / fastener.Eb + 1.0 / plate.E)
+            
+        compliance = C_shear + C_bending + C_bearing
+        stiffness = 1.0 / compliance if compliance > 0.0 else 1e12
+        return compliance, stiffness
+
     def _resolve_fastener_pairs(
         self,
         fastener: FastenerRow,
@@ -384,6 +413,7 @@ class Joint1D:
             _validate_force(int(plate_index), int(local_node))
             validated_forces.append((int(plate_index), int(local_node), float(value)))
 
+        # 1. Assemble Plate Stiffness (Bars)
         for plate_index, plate in enumerate(self.plates):
             segments = plate.segment_count()
             if len(plate.A_strip) != segments:
@@ -401,51 +431,78 @@ class Joint1D:
             force_vector[self._dof[(plate_index, 0)]] += plate.Fx_left
             force_vector[self._dof[(plate_index, segments)]] += plate.Fx_right
 
-        springs: List[Tuple[int, int, float, int, int, int, float]] = []
+        # 2. Assemble Fastener Stiffness (Star Topology)
+        # Store springs for result generation: (dof_plate, dof_fast, k, row, plate_idx, compliance)
+        springs: List[Tuple[int, int, float, int, int, float]] = [] 
+        
         for fastener in self.fasteners:
             row_index = fastener.row
-            present = self._plates_at_row(row_index)
-            pairs = self._resolve_fastener_pairs(fastener, row_index, present)
-            if not pairs:
+            present_indices = self._plates_at_row(row_index)
+            if not present_indices:
                 continue
-            position_map = {plate_idx: idx for idx, plate_idx in enumerate(present)}
-            for upper_idx, lower_idx in pairs:
-                upper_plate = self.plates[upper_idx]
-                lower_plate = self.plates[lower_idx]
-                local_upper = row_index - upper_plate.first_row
-                local_lower = row_index - lower_plate.first_row
-                dof_upper = self._dof[(upper_idx, local_upper)]
-                dof_lower = self._dof[(lower_idx, local_lower)]
-                upper_position = position_map[upper_idx]
-                lower_position = position_map[lower_idx]
-                ti = max(upper_plate.t, 1e-12)
-                tj = max(lower_plate.t, 1e-12)
+
+            dof_fastener = self._dof[("fastener", row_index)]
+            
+            # 2. Identify plates at this row and sort them
+            plates_at_row = []
+            for plate_idx, plate in enumerate(self.plates):
+                if plate.first_row <= row_index <= plate.last_row:
+                    plates_at_row.append((plate_idx, plate))
+            
+            # Sort by plate index to establish neighbor relationships
+            plates_at_row.sort(key=lambda x: x[0])
+            
+            # 3. Calculate base compliances and apply corrections
+            # Base compliance (Star Topology)
+            plate_compliances = {}
+            for plate_idx, plate in plates_at_row:
+                compliance, stiffness = self._calculate_single_stiffness(plate, fastener)
+                plate_compliances[plate_idx] = compliance
+
+            # Apply Coupling Correction
+            # The Star model (6t^3) is too compliant for unequal thicknesses compared to Boeing (coupled).
+            # We subtract the excess compliance from the interfaces.
+            # Excess = 5 * (ti - tj)^2 * (ti + tj) / (40 * Eb * Ib)
+            if len(plates_at_row) > 1:
+                I_b = math.pi * (fastener.D / 2.0) ** 4 / 4.0
+                factor = 5.0 / (40.0 * fastener.Eb * I_b)
                 
-                # Cap thickness at diameter for shear and bending terms
-                # This prevents thick plates from artificially lowering stiffness due to assumed bending length
-                D = fastener.D
-                ti_eff = min(ti, D) if D > 0 else ti
-                tj_eff = min(tj, D) if D > 0 else tj
+                for i in range(len(plates_at_row) - 1):
+                    p_idx_1, plate_1 = plates_at_row[i]
+                    p_idx_2, plate_2 = plates_at_row[i+1]
+                    
+                    t1 = plate_1.t
+                    t2 = plate_2.t
+                    
+                    excess_compliance = factor * (t1 - t2)**2 * (t1 + t2)
+                    correction = excess_compliance / 2.0
+                    
+                    # Subtract correction from both sides of the interface
+                    plate_compliances[p_idx_1] -= correction
+                    plate_compliances[p_idx_2] -= correction
+
+            # 4. Assemble Stiffness Matrix
+            for plate_idx, plate in plates_at_row:
+                # Get corrected compliance
+                compliance = plate_compliances[plate_idx]
+                # Ensure compliance doesn't become non-physical (negative or zero)
+                if compliance <= 1e-12:
+                    compliance = 1e-12
                 
-                compliance_total, stiffness_total = self._compliance_for_pair(
-                    fastener,
-                    upper_plate,
-                    lower_plate,
-                    ti,
-                    tj,
-                    1,
-                    shear_ti=ti_eff,
-                    shear_tj=tj_eff,
-                    bending_ti=ti_eff,
-                    bending_tj=tj_eff,
-                )
-                compliance = compliance_total
-                stiffness = stiffness_total
-                stiffness_matrix[dof_upper][dof_upper] += stiffness
-                stiffness_matrix[dof_upper][dof_lower] -= stiffness
-                stiffness_matrix[dof_lower][dof_upper] -= stiffness
-                stiffness_matrix[dof_lower][dof_lower] += stiffness
-                springs.append((dof_upper, dof_lower, stiffness, row_index, upper_idx, lower_idx, compliance))
+                stiffness = 1.0 / compliance
+                
+                # Get DOFs
+                local_node = row_index - plate.first_row
+                dof_plate = self._dof.get((plate_idx, local_node))
+                
+                if dof_plate is not None:
+                    springs.append((dof_plate, dof_fastener, stiffness, row_index, plate_idx, compliance))
+                    
+                    # Add to global stiffness matrix
+                    stiffness_matrix[dof_plate][dof_plate] += stiffness
+                    stiffness_matrix[dof_plate][dof_fastener] -= stiffness
+                    stiffness_matrix[dof_fastener][dof_plate] -= stiffness
+                    stiffness_matrix[dof_fastener][dof_fastener] += stiffness
 
         for plate_index, local_node, magnitude in validated_forces:
             force_vector[self._dof[(plate_index, local_node)]] += magnitude
@@ -470,22 +527,59 @@ class Joint1D:
         for idx, value in zip(fixed_dofs, prescribed_values):
             displacements[idx] = value
 
+        # Group springs by row for Virtual Pair processing
+        springs_by_row: Dict[int, List[Tuple[int, int, float, int, float]]] = {}
+        for dof_plate, dof_fast, stiffness, row_index, plate_idx, compliance in springs:
+            if row_index not in springs_by_row:
+                springs_by_row[row_index] = []
+            springs_by_row[row_index].append((dof_plate, dof_fast, stiffness, plate_idx, compliance))
+
         fastener_results: List[FastenerResult] = []
-        for dof_i, dof_j, stiffness, row_index, plate_i, plate_j, compliance in springs:
-            force = stiffness * (displacements[dof_i] - displacements[dof_j])
-            fastener_results.append(
-                FastenerResult(
-                    row=row_index,
-                    plate_i=plate_i,
-                    plate_j=plate_j,
-                    compliance=compliance,
-                    stiffness=stiffness,
-                    force=force,
-                    dof_i=dof_i,
-                    dof_j=dof_j,
+        
+        for row_index, row_springs in springs_by_row.items():
+            # Sort by plate index (assuming plate index corresponds to stack order)
+            # This is critical for defining "intervals" correctly.
+            row_springs.sort(key=lambda x: x[3]) # Sort by plate_idx
+            
+            # Calculate individual forces first
+            star_forces = []
+            for dof_plate, dof_fast, k, p_idx, c in row_springs:
+                f = k * (displacements[dof_plate] - displacements[dof_fast])
+                star_forces.append(f)
+                
+            # Generate Virtual Pair results (Intervals)
+            # For N plates, we have N-1 intervals.
+            # Interval i connects Plate i and Plate i+1.
+            for i in range(len(row_springs) - 1):
+                # Data for Plate i (Top)
+                dof_plate_i, dof_fast_i, k_i, p_idx_i, c_i = row_springs[i]
+                # Data for Plate i+1 (Bottom)
+                dof_plate_j, dof_fast_j, k_j, p_idx_j, c_j = row_springs[i+1]
+                
+                # Effective Stiffness of the pair: Series combination of the two star links
+                # K_eff = 1 / (C_i + C_j)
+                c_eff = c_i + c_j
+                k_eff = 1.0 / c_eff if c_eff > 0 else 1e12
+                
+                # Effective Force: Cumulative load from top
+                # The shear force transferring across the interface between Plate i and Plate i+1
+                # is the sum of all loads entering the fastener from plates above the interface.
+                f_eff = sum(star_forces[:i+1])
+                
+                fastener_results.append(
+                    FastenerResult(
+                        row=row_index,
+                        plate_i=p_idx_i,
+                        plate_j=p_idx_j,
+                        compliance=c_eff,
+                        stiffness=k_eff,
+                        force=f_eff,
+                        dof_i=dof_plate_i, # Keep DOFs for reference, though force is composite
+                        dof_j=dof_plate_j,
+                    )
                 )
-            )
-        fastener_results.sort(key=lambda item: (item.row, min(item.plate_i, item.plate_j), max(item.plate_i, item.plate_j)))
+
+        fastener_results.sort(key=lambda item: (item.row, item.plate_i))
 
         bearing_results: List[BearingBypassResult] = []
         for row_index in range(1, len(self.pitches) + 1):
