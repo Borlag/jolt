@@ -317,14 +317,14 @@ class Joint1D:
         I_b = math.pi * (fastener.D / 2.0) ** 4 / 4.0  # I = pi*r^4/4 = pi*(D/2)^4/4
         G_b = fastener.Eb / (2.0 * (1.0 + fastener.nu_b))
 
-        # 1. Shear: Use full t (no cap). Pair formula is 4(ti+tj)/9GA. Single is 4t/9GA.
+        # 1. Shear: Use full t.
         C_shear = (4.0 * t) / (9.0 * G_b * A_b)
         
-        # 2. Bending: Use full t (no cap). Single is 6 t^3 / (40 Eb I).
-        # Note: 40 Eb I comes from the formula.
-        C_bending = (6.0 * t**3) / (40.0 * fastener.Eb * I_b)
+        # 2. Bending: Cap thickness at Diameter (Boeing D6-29942 Rule)
+        t_bending = min(t, fastener.D)
+        C_bending = (6.0 * t_bending**3) / (40.0 * fastener.Eb * I_b)
         
-        # 3. Bearing: Single plate bearing
+        # 3. Bearing: Single plate bearing uses full t
         C_bearing = (1.0 / t) * (1.0 / fastener.Eb + 1.0 / plate.E)
             
         compliance = C_shear + C_bending + C_bearing
@@ -471,15 +471,31 @@ class Joint1D:
                     p_idx_1, plate_1 = plates_at_row[i]
                     p_idx_2, plate_2 = plates_at_row[i+1]
                     
-                    t1 = plate_1.t
-                    t2 = plate_2.t
+                    # Use capped thickness for bending correction to match base springs
+                    t1_bend = min(plate_1.t, fastener.D)
+                    t2_bend = min(plate_2.t, fastener.D)
                     
-                    excess_compliance = factor * (t1 - t2)**2 * (t1 + t2)
-                    correction = excess_compliance / 2.0
+                    # Excess = 5 * (ti - tj)^2 * (ti + tj) / (40 E I)
+                    excess_compliance = factor * (t1_bend - t2_bend)**2 * (t1_bend + t2_bend)
                     
-                    # Subtract correction from both sides of the interface
-                    plate_compliances[p_idx_1] -= correction
-                    plate_compliances[p_idx_2] -= correction
+                    # DISTRIBUTE CORRECTION
+                    # To avoid coupling errors in 3-plate stacks (where the middle plate 
+                    # affects both interfaces), we push the correction to the "outer" 
+                    # plates of the stack whenever possible.
+                    
+                    is_first_pair = (i == 0)
+                    is_last_pair = (i == len(plates_at_row) - 2)
+                    
+                    if is_first_pair:
+                        # First pair: Subtract full excess from Top Plate
+                        plate_compliances[p_idx_1] -= excess_compliance
+                    elif is_last_pair:
+                        # Last pair: Subtract full excess from Bottom Plate
+                        plate_compliances[p_idx_2] -= excess_compliance
+                    else:
+                        # Middle pairs (rare in standard joints): Split correction
+                        plate_compliances[p_idx_1] -= excess_compliance / 2.0
+                        plate_compliances[p_idx_2] -= excess_compliance / 2.0
 
             # 4. Assemble Stiffness Matrix
             for plate_idx, plate in plates_at_row:
