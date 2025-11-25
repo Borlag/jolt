@@ -85,13 +85,59 @@ def render_joint_diagram_plotly(
         y = y_levels[plate_idx]
         
         # Plate Line
+        # We need to handle gaps (A_strip <= 1e-9).
+        # We'll build lists of x, y coordinates, inserting None to break the line at gaps.
+        x_plot = []
+        y_plot = []
+        
+        # Iterate through segments to build the plot path
+        # coords has len(segments) + 1 points
+        for seg_idx in range(len(coords) - 1):
+            # Map local segment index to plate's A_strip
+            # coords starts at start_index (relative to pitches), which corresponds to plate.first_row - 1
+            # So seg_idx 0 in coords corresponds to plate.A_strip[start_index - (plate.first_row - 1)]
+            # Wait, start_index = max(plate.first_row - 1, 0).
+            # If plate.first_row = 1, start_index = 0.
+            # plate.A_strip[0] corresponds to segment between row 1 and 2.
+            # coords[0] is x at row 1. coords[1] is x at row 2.
+            # So segment seg_idx corresponds to plate.A_strip[start_index - (plate.first_row - 1) + seg_idx]
+            
+            strip_idx = start_index - (plate.first_row - 1) + seg_idx
+            if 0 <= strip_idx < len(plate.A_strip):
+                is_gap = plate.A_strip[strip_idx] <= 1e-9
+            else:
+                is_gap = False # Should not happen if indices are correct
+            
+            if is_gap:
+                # If it's a gap, we don't draw this segment.
+                # If we were drawing, we need to break the line.
+                x_plot.append(None)
+                y_plot.append(None)
+            else:
+                # If we are starting a new segment and the previous was a gap (or start),
+                # we need to ensure the start point is added.
+                # However, Plotly connects points.
+                # To draw segment from coords[seg_idx] to coords[seg_idx+1]:
+                # We add coords[seg_idx], then coords[seg_idx+1].
+                # But if we just append points, we get a continuous line.
+                # If we have [x0, x1, None, x2, x3], we get line x0-x1 and x2-x3.
+                
+                # Check if we need to add the start point of this segment
+                if not x_plot or x_plot[-1] is None:
+                    x_plot.append(coords[seg_idx])
+                    y_plot.append(y)
+                
+                x_plot.append(coords[seg_idx+1])
+                y_plot.append(y)
+
         fig.add_trace(go.Scatter(
-            x=coords,
-            y=[y] * len(coords),
+            x=x_plot,
+            y=y_plot,
             mode="lines",
             line=dict(width=4),
             name=plate.name,
             legendgroup=plate.name,
+            connectgaps=False 
         ))
 
         # Nodes
@@ -210,7 +256,7 @@ def render_joint_diagram_plotly(
             fig.add_annotation(
                 x=x_label,
                 y=y_label + 0.3 * vertical_spacing,
-                text=f"F{fast_idx + 1}",
+                text=f"F{fastener.row}",
                 showarrow=False,
                 font=dict(color="purple", size=font_size)
             )
@@ -344,7 +390,7 @@ def render_joint_diagram_plotly(
                 fig.add_annotation(
                     x=x_pos,
                     y=y_center + offset,
-                    text=f"F{fast_idx + 1} = {fastener.force:+.1f} lb",
+                    text=f"F{fastener.row}<sup>{fastener.plate_i}-{fastener.plate_j}</sup> = {fastener.force:+.1f} lb",
                     showarrow=False,
                     bgcolor="rgba(255, 255, 255, 0.92)",
                     bordercolor="purple",

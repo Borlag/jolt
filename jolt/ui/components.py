@@ -298,6 +298,12 @@ def _render_geometry_section():
 def _render_plates_section():
     n_rows = len(st.session_state.pitches)
     for idx, plate in enumerate(st.session_state.plates):
+        # Ensure backward compatibility for session state objects
+        if not hasattr(plate, "widths"):
+            plate.widths = None
+        if not hasattr(plate, "thicknesses"):
+            plate.thicknesses = None
+            
         with st.expander(f"Layer {idx}: {plate.name}", expanded=False):
             c1, c2, c3 = st.columns(3)
             plate.name = c1.text_input("Name", plate.name, key=f"pl_name_{idx}_v{st.session_state.get('_widget_version', 0)}")
@@ -335,30 +341,82 @@ def _render_plates_section():
                 if len(plate.A_strip) != segments:
                     default_area = plate.A_strip[0] if plate.A_strip else 0.05
                     plate.A_strip = [default_area] * segments
-                same_area = st.checkbox("Same bypass area for all segments", value=True, key=f"sameA_{idx}_v{st.session_state.get('_widget_version', 0)}")
-                if same_area:
-                    default_area = plate.A_strip[0] if plate.A_strip else 0.05
-                    area_val = st.number_input(
-                        "Bypass area per segment [in²]",
-                        1e-5,
-                        10.0,
-                        default_area,
-                        key=f"pl_A_all_{idx}_v{st.session_state.get('_widget_version', 0)}",
-                        step=0.001,
-                        format="%.3f",
-                    )
-                    plate.A_strip = [float(area_val)] * segments
+                # Definition Mode Selection
+                def_mode = st.radio(
+                    "Definition Mode", 
+                    ["Area", "Width/Thickness"], 
+                    index=1 if (plate.widths and plate.thicknesses) else 0,
+                    key=f"def_mode_{idx}_v{st.session_state.get('_widget_version', 0)}", 
+                    horizontal=True
+                )
+                
+                if def_mode == "Width/Thickness":
+                    # Initialize if needed
+                    if not plate.widths or len(plate.widths) != segments:
+                        plate.widths = [1.0] * segments
+                    if not plate.thicknesses or len(plate.thicknesses) != segments:
+                        plate.thicknesses = [plate.t] * segments
+                        
+                    same_dims = st.checkbox("Constant Width & Thickness", value=True, key=f"sameWT_{idx}_v{st.session_state.get('_widget_version', 0)}")
+                    
+                    if same_dims:
+                        c_w, c_t = st.columns(2)
+                        w_val = c_w.number_input("Width [in]", 0.001, 100.0, plate.widths[0], key=f"pl_w_all_{idx}", step=0.1, format="%.3f")
+                        t_val = c_t.number_input("Thickness [in]", 0.001, 2.0, plate.thicknesses[0], key=f"pl_t_all_{idx}", step=0.001, format="%.3f")
+                        plate.widths = [w_val] * segments
+                        plate.thicknesses = [t_val] * segments
+                        # Update Area immediately for visual feedback or consistency
+                        plate.A_strip = [w * t for w, t in zip(plate.widths, plate.thicknesses)]
+                    else:
+                        st.write("Segment Dimensions:")
+                        for seg in range(segments):
+                            c_w, c_t = st.columns(2)
+                            w_val = c_w.number_input(f"w[{seg+1}]", 0.001, 100.0, plate.widths[seg], key=f"pl_w_{idx}_{seg}", step=0.1, format="%.3f")
+                            t_val = c_t.number_input(f"t[{seg+1}]", 0.001, 2.0, plate.thicknesses[seg], key=f"pl_t_{idx}_{seg}", step=0.001, format="%.3f")
+                            plate.widths[seg] = w_val
+                            plate.thicknesses[seg] = t_val
+                            plate.A_strip[seg] = w_val * t_val
                 else:
-                    for seg in range(segments):
-                        plate.A_strip[seg] = st.number_input(
-                            f"A[{seg+1}] [in²]",
+                    # Clear W/T to indicate Area mode preference? Or just ignore them.
+                    # Better to keep them but maybe reset them if Area is changed?
+                    # For now, just show Area inputs.
+                    same_area = st.checkbox("Same bypass area for all segments", value=True, key=f"sameA_{idx}_v{st.session_state.get('_widget_version', 0)}")
+                    if same_area:
+                        default_area = plate.A_strip[0] if plate.A_strip else 0.05
+                        area_val = st.number_input(
+                            "Bypass area per segment [in²]",
                             1e-5,
                             10.0,
-                            plate.A_strip[seg],
-                            key=f"pl_A_{idx}_{seg}_v{st.session_state.get('_widget_version', 0)}",
+                            default_area,
+                            key=f"pl_A_all_{idx}_v{st.session_state.get('_widget_version', 0)}",
                             step=0.001,
                             format="%.3f",
                         )
+                        plate.A_strip = [float(area_val)] * segments
+                    else:
+                        for seg in range(segments):
+                            c_gap, c_val = st.columns([0.3, 0.7])
+                            is_gap = plate.A_strip[seg] <= 1e-9
+                            with c_gap:
+                                # Use a unique key for the checkbox
+                                make_gap = st.checkbox("Gap", value=is_gap, key=f"gap_{idx}_{seg}_v{st.session_state.get('_widget_version', 0)}")
+                            with c_val:
+                                if make_gap:
+                                    plate.A_strip[seg] = 0.0
+                                    st.text_input(f"A[{seg+1}]", value="0.0", disabled=True, key=f"pl_A_dis_{idx}_{seg}_v{st.session_state.get('_widget_version', 0)}")
+                                else:
+                                    val_to_show = plate.A_strip[seg]
+                                    if val_to_show <= 1e-9:
+                                        val_to_show = 0.05
+                                    plate.A_strip[seg] = st.number_input(
+                                        f"A[{seg+1}] [in²]",
+                                        1e-5,
+                                        10.0,
+                                        val_to_show,
+                                        key=f"pl_A_{idx}_{seg}_v{st.session_state.get('_widget_version', 0)}",
+                                        step=0.001,
+                                        format="%.3f",
+                                    )
             e1, e2 = st.columns(2)
             plate.Fx_left = e1.number_input(
                 "End load LEFT [+→] [lb]", -1e6, 1e6, plate.Fx_left, key=f"pl_Fl_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1.0, format="%.1f"
@@ -576,44 +634,24 @@ def _load_example_figure76():
     st.rerun()
 
 def render_solution_tables(solution: JointSolution):
-    st.subheader("Fasteners")
-    fastener_dicts = solution.fasteners_as_dicts()
-    if pd is not None:
-        df_fast = pd.DataFrame(fastener_dicts)
-        st.dataframe(
-            df_fast.style.format({"CF [in/lb]": "{:.3e}", "k [lb/in]": "{:.3e}", "F [lb]": "{:.2f}"}),
-            width="stretch",
-            hide_index=True,
-        )
-    else:
-        st.table(fastener_dicts)
-
-    reaction_dicts = solution.reactions_as_dicts()
-    df_react = None
-    if reaction_dicts:
-        st.subheader("Support reactions")
-        if pd is not None:
-            df_react = pd.DataFrame(reaction_dicts)
-            st.dataframe(
-                df_react.style.format({"Reaction [lb]": "{:+.2f}"}),
-                width="stretch",
-                hide_index=True,
-            )
-        else:
-            st.table(reaction_dicts)
-
+    # 1. Nodes Table
     st.subheader("Nodes")
     node_dicts = solution.nodes_as_dicts()
     if pd is not None:
         df_nodes = pd.DataFrame(node_dicts)
+        # Reorder columns to match Boeing: X Location, Displacement, Net Bypass Load, Thickness, Bypass Area, Order, Multiple Thickness
+        cols = ["Node ID", "X Location", "Displacement", "Net Bypass Load", "Thickness", "Bypass Area", "Order", "Multiple Thickness"]
+        # Filter existing columns
+        cols = [c for c in cols if c in df_nodes.columns]
+        
         st.dataframe(
-            df_nodes.style.format(
+            df_nodes[cols].style.format(
                 {
-                    "X [in]": "{:.3f}",
-                    "u [in]": "{:.6e}",
-                    "Net Bypass [lb]": "{:.2f}",
-                    "t [in]": "{:.3f}",
-                    "Bypass Area [in^2]": "{:.3f}",
+                    "X Location": "{:.3f}",
+                    "Displacement": "{:.6e}",
+                    "Net Bypass Load": "{:.1f}",
+                    "Thickness": "{:.3f}",
+                    "Bypass Area": "{:.3f}",
                 }
             ),
             width="stretch",
@@ -622,47 +660,133 @@ def render_solution_tables(solution: JointSolution):
     else:
         st.table(node_dicts)
 
-    st.subheader("Bars (plate segments)")
+    # 2. Plates Table (Bars)
+    st.subheader("Plates")
     bar_dicts = solution.bars_as_dicts()
     if pd is not None:
         df_bars = pd.DataFrame(bar_dicts)
+        cols = ["ID", "Force", "Stiffness", "Modulus"]
+        cols = [c for c in cols if c in df_bars.columns]
         st.dataframe(
-            df_bars.style.format({"Force [lb]": "{:.2f}", "k_bar [lb/in]": "{:.3e}", "E [psi]": "{:.3e}"}),
+            df_bars[cols].style.format({"Force": "{:.1f}", "Stiffness": "{:.2e}", "Modulus": "{:.3e}"}),
             width="stretch",
             hide_index=True,
         )
     else:
         st.table(bar_dicts)
 
-    st.subheader("Bearing / Bypass by row & plate")
-    bearing_dicts = solution.bearing_bypass_as_dicts()
+    # 3. Fasteners Table
+    st.subheader("Fasteners")
+    fastener_dicts = solution.fasteners_as_dicts()
     if pd is not None:
-        df_bb = pd.DataFrame(bearing_dicts)
+        df_fast = pd.DataFrame(fastener_dicts)
+        cols = ["Row", "Load", "Brg Force Upper", "Brg Force Lower", "Stiffness", "Modulus", "Diameter", "Quantity", "Thickness Node 1", "Thickness Node 2"]
+        cols = [c for c in cols if c in df_fast.columns]
         st.dataframe(
-            df_bb.style.format({"Bearing [lb]": "{:.2f}", "Bypass [lb]": "{:.2f}"}),
+            df_fast[cols].style.format({
+                "Load": "{:.1f}", 
+                "Brg Force Upper": "{:.1f}",
+                "Brg Force Lower": "{:.1f}",
+                "Stiffness": "{:.2e}", 
+                "Modulus": "{:.3e}",
+                "Diameter": "{:.3f}",
+                "Quantity": "{:.1f}",
+                "Thickness Node 1": "{:.3f}",
+                "Thickness Node 2": "{:.3f}",
+            }),
             width="stretch",
             hide_index=True,
         )
     else:
-        st.table(bearing_dicts)
+        st.table(fastener_dicts)
 
+    # 4. Reactions Table
+    if solution.reactions:
+        st.subheader("Reactions")
+        reaction_dicts = solution.reactions_as_dicts()
+        if pd is not None:
+            df_react = pd.DataFrame(reaction_dicts)
+            cols = ["Node ID", "Force"]
+            cols = [c for c in cols if c in df_react.columns]
+            st.dataframe(
+                df_react[cols].style.format({"Force": "{:.1f}"}),
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            st.table(reaction_dicts)
+            
+    # 5. Classic Results
+    st.subheader("Classic Results")
+    classic_dicts = solution.classic_results_as_dicts()
+    if classic_dicts:
+        if pd is not None:
+            df_classic = pd.DataFrame(classic_dicts)
+            cols = ["Row", "Thickness", "Area", "No of Fasteners", "Fastener Diameter", "Incoming Load", "Bypass Load", "Load Transfer", "L.Trans / P", "Detail Stress", "Bearing Stress", "Fbr / FDetail"]
+            cols = [c for c in cols if c in df_classic.columns]
+            st.dataframe(
+                df_classic[cols].style.format({
+                    "Thickness": "{:.3f}",
+                    "Area": "{:.3f}",
+                    "No of Fasteners": "{:.1f}",
+                    "Fastener Diameter": "{:.3f}",
+                    "Incoming Load": "{:.1f}",
+                    "Bypass Load": "{:.1f}",
+                    "Load Transfer": "{:.1f}",
+                    "L.Trans / P": "{:.3f}",
+                    "Detail Stress": "{:.0f}",
+                    "Bearing Stress": "{:.0f}",
+                    "Fbr / FDetail": "{:.3f}",
+                }),
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            st.table(classic_dicts)
+
+    # 6. Loads
+    if solution.applied_forces:
+        st.subheader("Loads")
+        if pd is not None:
+            df_loads = pd.DataFrame(solution.applied_forces)
+            cols = ["Value", "Reference Node"]
+            st.dataframe(
+                df_loads[cols].style.format({"Value": "{:.1f}"}),
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            st.table(solution.applied_forces)
+
+    # 7. Min/Max Results
+    st.subheader("Min/Max Results")
+    max_fast_force = max([abs(f.force) for f in solution.fasteners]) if solution.fasteners else 0.0
+    max_plate_load = max([b.axial_force for b in solution.bars]) if solution.bars else 0.0
+    min_plate_load = min([b.axial_force for b in solution.bars]) if solution.bars else 0.0
+    
+    min_max_data = [
+        {"Result": "Abs Max Fastener Force", "Load": max_fast_force, "Quantity": "1.0", "ID": ""}, # ID could be found
+        {"Result": "Max Plate Load", "Load": max_plate_load, "Quantity": "", "ID": ""},
+        {"Result": "Min Plate Load", "Load": min_plate_load, "Quantity": "", "ID": ""},
+    ]
+    
+    if pd is not None:
+        st.dataframe(
+            pd.DataFrame(min_max_data).style.format({"Load": "{:.1f}"}),
+            width="stretch",
+            hide_index=True,
+        )
+    else:
+        st.table(min_max_data)
+
+    # Exports
     if pd is not None:
         st.download_button("Export fasteners CSV", data=df_fast.to_csv(index=False).encode("utf-8"), file_name="fasteners.csv", mime="text/csv")
         st.download_button("Export nodes CSV", data=df_nodes.to_csv(index=False).encode("utf-8"), file_name="nodes.csv", mime="text/csv")
         st.download_button("Export bars CSV", data=df_bars.to_csv(index=False).encode("utf-8"), file_name="bars.csv", mime="text/csv")
-        st.download_button(
-            "Export bearing_bypass CSV",
-            data=df_bb.to_csv(index=False).encode("utf-8"),
-            file_name="bearing_bypass.csv",
-            mime="text/csv",
-        )
-        if df_react is not None:
-            st.download_button(
-                "Export reactions CSV",
-                data=df_react.to_csv(index=False).encode("utf-8"),
-                file_name="reactions.csv",
-                mime="text/csv",
-            )
+        if classic_dicts:
+             st.download_button("Export classic results CSV", data=df_classic.to_csv(index=False).encode("utf-8"), file_name="classic_results.csv", mime="text/csv")
+
 
 def render_save_section(pitches, plates, fasteners, supports, point_forces):
     st.divider()
