@@ -79,10 +79,13 @@ def verify_refactor():
     f_load = f_res["Load"]
     print(f"Fastener Load: {f_load}")
     
-    assert f_res["Brg Force Upper"] == abs(f_load)
-    assert f_res["Brg Force Lower"] == abs(f_load)
+    # For Case 2 (Stepped Lap), the bearing force on the middle plate is the difference in shears.
+    # In this simple 2-plate case, Bearing Force = Shear Force.
+    # So 1000 load -> 1000 bearing.
+    assert abs(f_res["Brg Force Upper"] - abs(f_load)) < 1e-6
+    assert abs(f_res["Brg Force Lower"] - abs(f_load)) < 1e-6
     
-    print("Total Bearing Load verified.")
+    print("Total Bearing Load verified (Simple Case).")
     
     # 4. Verify Classic Results
     classic = solution.classic_results_as_dicts()

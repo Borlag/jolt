@@ -137,7 +137,7 @@ class JointSolution:
         return [
             {
                 "ID": f"{1000 * (fastener.plate_i + 1) + fastener.row}-{1000 * (fastener.plate_j + 1) + fastener.row}",
-                "Load": fastener.force,
+                "Load": abs(fastener.force),
                 "Brg Force Upper": fastener.bearing_force_upper,
                 "Brg Force Lower": fastener.bearing_force_lower,
                 "Stiffness": fastener.stiffness,
@@ -173,7 +173,7 @@ class JointSolution:
         return [
             {
                 "ID": f"{1000 * (bar.plate_id + 1) + (bar.segment + 1)}-{1000 * (bar.plate_id + 1) + (bar.segment + 2)}",
-                "Force": bar.axial_force,
+                "Axial Force": bar.axial_force,
                 "Stiffness": bar.stiffness,
                 "Modulus": bar.modulus,
                 "plate_id": bar.plate_id,
@@ -209,6 +209,38 @@ class JointSolution:
 
     def classic_results_as_dicts(self) -> List[Dict[str, float]]:
         results = []
+        
+        # Calculate Reference Load P
+        # P is typically the total load transferred through the joint.
+        # We calculate it as the maximum of (Sum of Rightward Loads) and (Sum of Leftward Loads)
+        # to account for equilibrium (e.g. 1000 lb tension = 1000 lb right + 1000 lb left reaction).
+        # We include both Plate End Loads and Point Forces.
+        
+        sum_right = 0.0
+        sum_left = 0.0
+        
+        for p in self.plates:
+            # Fx_right and Fx_left are defined as positive -> right
+            if p.Fx_right > 0: sum_right += p.Fx_right
+            else: sum_left += abs(p.Fx_right)
+                
+            if p.Fx_left > 0: sum_right += p.Fx_left
+            else: sum_left += abs(p.Fx_left)
+            
+        for f in self.applied_forces:
+            val = f.get("Value", 0.0)
+            if val > 0: sum_right += val
+            else: sum_left += abs(val)
+            
+        # If the system is in equilibrium with reactions, the reactions are not in applied_forces.
+        # However, usually P is the "Applied Load".
+        # If we have 1000 lb right and a support, sum_right=1000, sum_left=0. P=1000.
+        # If we have 1000 lb right and 1000 lb left (explicit), sum_right=1000, sum_left=1000. P=1000.
+        P = max(sum_right, sum_left)
+        
+        if P < 1e-9:
+            P = 1.0 # Avoid division by zero
+            
         fastener_rows = {f.row for f in self.fasteners}
         diam_by_row = {}
         for f in self.fasteners:
@@ -222,22 +254,37 @@ class JointSolution:
             node_bearing_map[(f.plate_j, f.row)] = f.bearing_force_lower
 
         plate_name_to_idx = {p.name: i for i, p in enumerate(self.plates)}
-        node_map = {(n.plate_name, n.row): n for n in self.nodes}
         
-        for bb in self.bearing_bypass:
-            if bb.row not in fastener_rows:
-                continue
+        # Create a map of BearingBypass results for quick lookup
+        bb_map = {(bb.plate_name, bb.row): bb for bb in self.bearing_bypass}
+        
+        # Iterate through all nodes to ensure we capture every point of interest
+        for node in self.nodes:
+            # We only care about nodes that are part of the fastening/load transfer region?
+            # The legacy table seems to show all nodes in the fastened region.
+            # If a node is not in a fastener row, does it appear? 
+            # In the screenshot, rows 2,3,4,5,6,7,8 are shown. These are fastener rows.
+            # If there are nodes without fasteners, they might not be "Classic Results" relevant 
+            # unless we want to show bypass stresses everywhere.
+            # However, the user request specifically mentioned "Instead of row, there should be nodes".
+            # And the screenshot shows "3002, 3003..." which correspond to fastener locations.
+            # Let's stick to nodes that are at fastener rows for now, or maybe all nodes?
+            # The legacy code filtered by `if bb.row not in fastener_rows`.
+            # Let's keep that filter for "Classic Results" as it implies fastener interaction.
             
-            node_res = node_map.get((bb.plate_name, bb.row))
-            if not node_res:
+            if node.row not in fastener_rows:
+                continue
+
+            bb = bb_map.get((node.plate_name, node.row))
+            if not bb:
                 continue
                 
-            diameter = diam_by_row.get(bb.row, 0.0)
-            thickness = node_res.thickness
-            area = node_res.bypass_area if node_res.bypass_area else 0.0
+            diameter = diam_by_row.get(node.row, 0.0)
+            thickness = node.thickness
+            area = node.bypass_area if node.bypass_area else 0.0
             
-            plate_idx = plate_name_to_idx.get(bb.plate_name)
-            transfer = node_bearing_map.get((plate_idx, bb.row), 0.0)
+            plate_idx = plate_name_to_idx.get(node.plate_name)
+            transfer = node_bearing_map.get((plate_idx, node.row), 0.0)
             
             # Legacy definition: Incoming = Transfer + Bypass (downstream)
             # Use absolute values for legacy reporting
@@ -248,18 +295,22 @@ class JointSolution:
             bearing_stress = transfer / (diameter * thickness) if diameter * thickness > 0 else 0.0
             
             results.append({
-                "Row": bb.row,
+                "Element": node.plate_name,
+                "Node": node.legacy_id,
+                "Row": node.row, # Keep for debug/reference if needed
                 "Thickness": thickness,
                 "Area": area,
                 "Incoming Load": incoming,
                 "Bypass Load": bypass,
                 "Load Transfer": transfer,
+                "L.Trans / P": transfer / P if P != 0 else 0.0,
                 "Detail Stress": detail_stress,
                 "Bearing Stress": bearing_stress,
                 "Fbr / FDetail": bearing_stress / detail_stress if detail_stress > 1e-6 else 0.0,
-                "Node ID": node_res.legacy_id,
-                "Plate": bb.plate_name,
             })
+            
+        # Sort by Element (Plate Name) then Node ID
+        results.sort(key=lambda x: (x["Element"], x["Node"]))
             
         return results
 
@@ -509,6 +560,11 @@ class Joint1D:
                 f = k * (displacements[dof_plate] - displacements[dof_fast])
                 star_forces.append(f)
                 
+                # Bearing Force Logic: Cumulative sum of absolute shear forces acting on the node.
+                # This aggregates load from ALL interfaces connected to this plate at this row.
+                key = (p_idx, row_index)
+                node_bearing_loads[key] = node_bearing_loads.get(key, 0.0) + abs(f)
+                
             for i in range(len(row_springs) - 1):
                 dof_plate_i, dof_fast_i, k_i, p_idx_i, c_i = row_springs[i]
                 dof_plate_j, dof_fast_j, k_j, p_idx_j, c_j = row_springs[i+1]
@@ -530,17 +586,13 @@ class Joint1D:
                     if 0 <= s < len(self.plates[p_idx_j].thicknesses): t_j = self.plates[p_idx_j].thicknesses[s]
 
                 # Accumulate bearing loads for the connected nodes
-                # Note: f_eff is the shear force in the fastener interface.
-                # This force acts on both plates (equal and opposite).
-                # We need to sum the absolute values of these forces for each node.
-                
-                # Node i
-                key_i = (p_idx_i, row_index)
-                node_bearing_loads[key_i] = node_bearing_loads.get(key_i, 0.0) + abs(f_eff)
-                
-                # Node j
-                key_j = (p_idx_j, row_index)
-                node_bearing_loads[key_j] = node_bearing_loads.get(key_j, 0.0) + abs(f_eff)
+                # Bearing Force is the absolute value of the force in the spring connecting the plate to the fastener.
+                # We already calculated this as 'star_forces'.
+                # However, we need to map it to the plate.
+                # We can do this in the first loop or here.
+                # Let's do it in the first loop to be cleaner, but we are here.
+                # Actually, let's move it to the first loop.
+
                 
                 temp_fastener_data.append({
                     "row": row_index,

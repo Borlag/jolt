@@ -174,7 +174,7 @@ def render_joint_diagram_plotly(
             fig.add_annotation(
                 x=start_x,
                 y=y,
-                ax=start_x + direction * 0.6 * max_pitch,
+                ax=start_x - direction * 0.6 * max_pitch,
                 ay=y,
                 xref="x", yref="y", axref="x", ayref="y",
                 showarrow=True,
@@ -184,7 +184,7 @@ def render_joint_diagram_plotly(
                 arrowcolor="red"
             )
             fig.add_annotation(
-                x=start_x + direction * 0.65 * max_pitch,
+                x=start_x - direction * 0.65 * max_pitch,
                 y=y + 0.3 * vertical_spacing,
                 text=f"{plate.Fx_left:+.0f} lb",
                 showarrow=False,
@@ -197,7 +197,7 @@ def render_joint_diagram_plotly(
             fig.add_annotation(
                 x=end_x,
                 y=y,
-                ax=end_x + direction * 0.6 * max_pitch,
+                ax=end_x - direction * 0.6 * max_pitch,
                 ay=y,
                 xref="x", yref="y", axref="x", ayref="y",
                 showarrow=True,
@@ -207,7 +207,7 @@ def render_joint_diagram_plotly(
                 arrowcolor="red"
             )
             fig.add_annotation(
-                x=end_x + direction * 0.65 * max_pitch,
+                x=end_x - direction * 0.65 * max_pitch,
                 y=y + 0.3 * vertical_spacing,
                 text=f"{plate.Fx_right:+.0f} lb",
                 showarrow=False,
@@ -308,7 +308,7 @@ def render_joint_diagram_plotly(
             max_disp = max(max_disp, abs(disp))
 
         scale = 0.0
-        if max_disp > 0:
+        if max_disp > 1e-9:
             scale = 0.55 * max_pitch / max_disp
 
         for (plate_idx, local_node), (x_node, y_node) in node_coords.items():
@@ -332,7 +332,7 @@ def render_joint_diagram_plotly(
             fig.add_annotation(
                 x=x_node,
                 y=y_node + 0.25 * vertical_spacing,
-                text=f"u = {disp * 1000:.3f} mil",
+                text=f"u = {disp * 1000:+.3f} mil",
                 showarrow=False,
                 font=dict(color="orange", size=font_size, weight="bold")
             )
