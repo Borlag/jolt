@@ -467,10 +467,66 @@ def _render_fasteners_section():
         st.write("Configure any number of fasteners and assign them to available nodes.")
 
     remove_fasteners: List[int] = []
-    methods = ["Boeing69", "Huth_metal", "Huth_graphite", "Grumman", "Manual"]
+    
+    # --- Bulk Add Feature ---
+    with st.expander("Bulk Add Fasteners", expanded=False):
+        st.markdown("Add or update fasteners for a range of rows.")
+        bc1, bc2, bc3 = st.columns(3)
+        b_start = bc1.number_input("Start Row", 1, max(n_rows, 1), 1, key=f"bulk_start_v{st.session_state.get('_widget_version', 0)}")
+        b_end = bc2.number_input("End Row", 1, max(n_rows, 1), max(n_rows, 1), key=f"bulk_end_v{st.session_state.get('_widget_version', 0)}")
+        b_method = bc3.selectbox("Method", [
+            "Boeing69", 
+            "Huth (Bolted Metal)", 
+            "Huth (Riveted Metal)", 
+            "Huth (Bolted Graphite)", 
+            "Grumman", 
+            "Swift (Douglas)", 
+            "Tate-Rosenfeld", 
+            "Morris", 
+            "Manual"
+        ], key=f"bulk_method_v{st.session_state.get('_widget_version', 0)}")
+        
+        bc4, bc5, bc6 = st.columns(3)
+        b_d = bc4.number_input("Diameter [in]", 0.001, 2.0, 0.188, step=0.001, format="%.3f", key=f"bulk_d_v{st.session_state.get('_widget_version', 0)}")
+        b_E = bc5.number_input("Bolt E [psi]", 1e5, 5e8, 1e7, step=1e5, format="%.0f", key=f"bulk_E_v{st.session_state.get('_widget_version', 0)}")
+        b_nu = bc6.number_input("Bolt ν", 0.0, 0.49, 0.3, step=0.01, format="%.2f", key=f"bulk_nu_v{st.session_state.get('_widget_version', 0)}")
+        
+        if st.button("Apply to Range"):
+            # Create a map of existing fasteners by row for quick lookup/update
+            existing_map = {f.row: i for i, f in enumerate(st.session_state.fasteners)}
+            
+            for r in range(int(b_start), int(b_end) + 1):
+                if r in existing_map:
+                    # Update existing
+                    idx = existing_map[r]
+                    f = st.session_state.fasteners[idx]
+                    st.session_state.fasteners[idx] = replace(
+                        f, D=b_d, Eb=b_E, nu_b=b_nu, method=b_method
+                    )
+                else:
+                    # Append new
+                    st.session_state.fasteners.append(
+                        FastenerRow(row=r, D=b_d, Eb=b_E, nu_b=b_nu, method=b_method)
+                    )
+            # Sort fasteners by row
+            st.session_state.fasteners.sort(key=lambda x: x.row)
+            st.success(f"Updated fasteners for rows {b_start}-{b_end}")
+            st.rerun()
+
+    methods = [
+        "Boeing69", 
+        "Huth (Bolted Metal)", 
+        "Huth (Riveted Metal)", 
+        "Huth (Bolted Graphite)", 
+        "Grumman", 
+        "Swift (Douglas)", 
+        "Tate-Rosenfeld", 
+        "Morris", 
+        "Manual"
+    ]
     for idx, fastener in enumerate(st.session_state.fasteners):
         with st.expander(f"Fastener {idx + 1} — row {fastener.row}", expanded=(len(st.session_state.fasteners) <= 6)):
-            c0, c1, c2, c3, c4 = st.columns([1, 1, 1, 1, 0.5])
+            c0, c1, c2, c3, c4 = st.columns([0.7, 0.8, 1.0, 0.7, 1.8])
             clamped_row = min(max(int(fastener.row), 1), max(n_rows, 1))
             fastener.row = int(
                 c0.number_input(
