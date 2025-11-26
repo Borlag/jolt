@@ -49,6 +49,7 @@ class FastenerResult:
     force: float
     dof_i: int
     dof_j: int
+    dof_j: int
     bearing_force_upper: float = 0.0
     bearing_force_lower: float = 0.0
     modulus: float = 0.0
@@ -135,7 +136,7 @@ class JointSolution:
     def fasteners_as_dicts(self) -> List[Dict[str, float]]:
         return [
             {
-                "Row": f"{fastener.row} ({fastener.plate_i}-{fastener.plate_j})",
+                "ID": f"{1000 * (fastener.plate_i + 1) + fastener.row}-{1000 * (fastener.plate_j + 1) + fastener.row}",
                 "Load": fastener.force,
                 "Brg Force Upper": fastener.bearing_force_upper,
                 "Brg Force Lower": fastener.bearing_force_lower,
@@ -145,10 +146,7 @@ class JointSolution:
                 "Quantity": fastener.quantity,
                 "Thickness Node 1": fastener.t1,
                 "Thickness Node 2": fastener.t2,
-                "Fastener": f"F{fastener.row} ({fastener.plate_i}-{fastener.plate_j})",
-                "CF [in/lb]": fastener.compliance,
-                "k [lb/in]": fastener.stiffness,
-                "F [lb]": fastener.force,
+                "Row": f"{fastener.row} ({fastener.plate_i}-{fastener.plate_j})", # Keep for internal use if needed
             }
             for index, fastener in enumerate(self.fasteners)
         ]
@@ -217,6 +215,13 @@ class JointSolution:
             if f.diameter > 0:
                 diam_by_row[f.row] = f.diameter
         
+        # Reconstruct node bearing map from fasteners
+        node_bearing_map = {}
+        for f in self.fasteners:
+            node_bearing_map[(f.plate_i, f.row)] = f.bearing_force_upper
+            node_bearing_map[(f.plate_j, f.row)] = f.bearing_force_lower
+
+        plate_name_to_idx = {p.name: i for i, p in enumerate(self.plates)}
         node_map = {(n.plate_name, n.row): n for n in self.nodes}
         
         for bb in self.bearing_bypass:
@@ -231,22 +236,24 @@ class JointSolution:
             thickness = node_res.thickness
             area = node_res.bypass_area if node_res.bypass_area else 0.0
             
-            incoming = bb.flow_left
-            bypass = bb.flow_right
-            transfer = abs(bb.bearing)
+            plate_idx = plate_name_to_idx.get(bb.plate_name)
+            transfer = node_bearing_map.get((plate_idx, bb.row), 0.0)
             
-            detail_stress = max(abs(incoming), abs(bypass)) / area if area > 0 else 0.0
+            # Legacy definition: Incoming = Transfer + Bypass (downstream)
+            # Use absolute values for legacy reporting
+            bypass = abs(bb.flow_right)
+            incoming = transfer + bypass
+            
+            detail_stress = max(incoming, bypass) / area if area > 0 else 0.0
             bearing_stress = transfer / (diameter * thickness) if diameter * thickness > 0 else 0.0
             
             results.append({
+                "Row": bb.row,
                 "Thickness": thickness,
                 "Area": area,
-                "No of Fasteners": 1.0,
-                "Fastener Diameter": diameter,
                 "Incoming Load": incoming,
                 "Bypass Load": bypass,
                 "Load Transfer": transfer,
-                "L.Trans / P": transfer / abs(incoming) if abs(incoming) > 1e-6 else 0.0,
                 "Detail Stress": detail_stress,
                 "Bearing Stress": bearing_stress,
                 "Fbr / FDetail": bearing_stress / detail_stress if detail_stress > 1e-6 else 0.0,
@@ -528,11 +535,11 @@ class Joint1D:
                 # We need to sum the absolute values of these forces for each node.
                 
                 # Node i
-                key_i = (p_idx_i, row_index - self.plates[p_idx_i].first_row)
+                key_i = (p_idx_i, row_index)
                 node_bearing_loads[key_i] = node_bearing_loads.get(key_i, 0.0) + abs(f_eff)
                 
                 # Node j
-                key_j = (p_idx_j, row_index - self.plates[p_idx_j].first_row)
+                key_j = (p_idx_j, row_index)
                 node_bearing_loads[key_j] = node_bearing_loads.get(key_j, 0.0) + abs(f_eff)
                 
                 temp_fastener_data.append({
@@ -554,8 +561,8 @@ class Joint1D:
             # We need to find the FastenerRow object for this row
             fastener_obj = next((f for f in self.fasteners if f.row == item["row"]), None)
             
-            brg_upper = node_bearing_loads.get((item["pi"], item["row"] - self.plates[item["pi"]].first_row), 0.0)
-            brg_lower = node_bearing_loads.get((item["pj"], item["row"] - self.plates[item["pj"]].first_row), 0.0)
+            brg_upper = node_bearing_loads.get((item["pi"], item["row"]), 0.0)
+            brg_lower = node_bearing_loads.get((item["pj"], item["row"]), 0.0)
             
             fastener_results.append(
                 FastenerResult(

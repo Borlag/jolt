@@ -724,18 +724,15 @@ def render_solution_tables(solution: JointSolution):
     if classic_dicts:
         if pd is not None:
             df_classic = pd.DataFrame(classic_dicts)
-            cols = ["Node ID", "Thickness", "Area", "No of Fasteners", "Fastener Diameter", "Incoming Load", "Bypass Load", "Load Transfer", "L.Trans / P", "Detail Stress", "Bearing Stress", "Fbr / FDetail"]
+            cols = ["Row", "Thickness", "Area", "Incoming Load", "Bypass Load", "Load Transfer", "Detail Stress", "Bearing Stress", "Fbr / FDetail"]
             cols = [c for c in cols if c in df_classic.columns]
             st.dataframe(
                 df_classic[cols].style.format({
                     "Thickness": "{:.3f}",
                     "Area": "{:.3f}",
-                    "No of Fasteners": "{:.1f}",
-                    "Fastener Diameter": "{:.3f}",
                     "Incoming Load": "{:.1f}",
                     "Bypass Load": "{:.1f}",
                     "Load Transfer": "{:.1f}",
-                    "L.Trans / P": "{:.3f}",
                     "Detail Stress": "{:.0f}",
                     "Bearing Stress": "{:.0f}",
                     "Fbr / FDetail": "{:.3f}",
@@ -796,8 +793,14 @@ def render_solution_tables(solution: JointSolution):
     # 8. Force Balance Check
     st.subheader("Force Balance Check")
     
-    # Sum of Reactions
+    sum_applied = sum([f.get("Value", 0.0) for f in solution.applied_forces])
     sum_reactions = sum([r.reaction for r in solution.reactions])
+    residual = sum_applied + sum_reactions
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Sum Applied Loads", f"{sum_applied:.1f}")
+    c2.metric("Sum Reactions", f"{sum_reactions:.1f}")
+    c3.metric("Residual", f"{residual:.1e}", delta_color="inverse")
     
     # Sum of Applied Loads
     sum_applied = 0.0
