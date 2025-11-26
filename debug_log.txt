@@ -1,0 +1,9 @@
+DEBUG: Starting solve
+DEBUG: Bar stiffness done
+DEBUG: Processing fastener row 1
+DEBUG: Checking Plate 0 (1-2) against Row 1
+DEBUG: Checking Plate 1 (1-2) against Row 1
+DEBUG: Calc stiffness for plate 0
+DEBUG: Calc stiffness for plate 1
+DEBUG: Row 1 Plate 0 Method Grumman C=3.73e-06 K=2.68e+05
+DEBUG: Row 1 Plate 1 Method Grumman C=3.73e-06 K=2.68e+05

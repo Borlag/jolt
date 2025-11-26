@@ -358,19 +358,61 @@ class Joint1D:
 
     def _calculate_single_stiffness(self, plate: Plate, fastener: FastenerRow, t_local: Optional[float] = None) -> Tuple[float, float]:
         t = t_local if t_local is not None else plate.t
-        A_b = math.pi * (fastener.D / 2.0) ** 2
-        I_b = math.pi * (fastener.D / 2.0) ** 4 / 4.0
-        G_b = fastener.Eb / (2.0 * (1.0 + fastener.nu_b))
-
-        t_shear = min(t, (fastener.D + t) / 2)
-        C_shear = (4.0 * t_shear) / (9.0 * G_b * A_b)
         
-        t_bending = min(t, fastener.D)
-        C_bending = (6.0 * t_bending**3) / (40.0 * fastener.Eb * I_b)
+        method = fastener.method.lower()
         
-        C_bearing = (1.0 / t) * (1.0 / fastener.Eb + 1.0 / plate.E)
+        if method == "manual":
+            stiffness = fastener.k_manual if fastener.k_manual is not None else 1.0e6
+            compliance = 1.0 / stiffness
+            return compliance, stiffness
             
-        compliance = C_shear + C_bending + C_bearing
+        elif "huth" in method:
+            # Huth method
+            # Approximation for star model: Calculate compliance of a symmetric joint (ti=tj=t)
+            # and assign half to this plate.
+            joint_type = "metal"
+            if "graphite" in method or "composite" in method:
+                joint_type = "composite"
+            
+            # Use 'single' shear for the symmetric pair calculation as a baseline unit
+            c_sym = huth_compliance(
+                ti=t, Ei=plate.E,
+                tj=t, Ej=plate.E,
+                Ef=fastener.Eb,
+                diameter=fastener.D,
+                shear="single",
+                joint_type=joint_type
+            )
+            compliance = c_sym / 2.0
+            
+        elif "grumman" in method:
+            # Grumman method
+            # Approximation: Symmetric joint / 2
+            c_sym = grumman_compliance(
+                ti=t, Ei=plate.E,
+                tj=t, Ej=plate.E,
+                Ef=fastener.Eb,
+                diameter=fastener.D
+            )
+            compliance = c_sym / 2.0
+            
+        else:
+            # Boeing69 (Default)
+            # Existing logic for partial compliance
+            A_b = math.pi * (fastener.D / 2.0) ** 2
+            I_b = math.pi * (fastener.D / 2.0) ** 4 / 4.0
+            G_b = fastener.Eb / (2.0 * (1.0 + fastener.nu_b))
+
+            t_shear = min(t, (fastener.D + t) / 2)
+            C_shear = (4.0 * t_shear) / (9.0 * G_b * A_b)
+            
+            t_bending = min(t, fastener.D)
+            C_bending = (6.0 * t_bending**3) / (40.0 * fastener.Eb * I_b)
+            
+            C_bearing = (1.0 / t) * (1.0 / fastener.Eb + 1.0 / plate.E)
+                
+            compliance = C_shear + C_bending + C_bearing
+            
         stiffness = 1.0 / compliance if compliance > 0.0 else 1e12
         return compliance, stiffness
 
@@ -381,7 +423,7 @@ class Joint1D:
     ) -> JointSolution:
         point_forces = point_forces or []
         ndof = self._build_dofs()
-
+        
         stiffness_matrix = [[0.0 for _ in range(ndof)] for _ in range(ndof)]
         force_vector = [0.0 for _ in range(ndof)]
 
@@ -461,7 +503,7 @@ class Joint1D:
                 compliance, stiffness = self._calculate_single_stiffness(plate, fastener, t_local)
                 plate_compliances[plate_idx] = compliance
 
-            if len(plates_at_row) > 1:
+            if len(plates_at_row) > 1 and "boeing" in fastener.method.lower():
                 I_b = math.pi * (fastener.D / 2.0) ** 4 / 4.0
                 factor = 5.0 / (40.0 * fastener.Eb * I_b)
                 
@@ -584,14 +626,6 @@ class Joint1D:
                     ln = row_index - self.plates[p_idx_j].first_row
                     s = ln if ln < len(self.plates[p_idx_j].thicknesses) else ln - 1
                     if 0 <= s < len(self.plates[p_idx_j].thicknesses): t_j = self.plates[p_idx_j].thicknesses[s]
-
-                # Accumulate bearing loads for the connected nodes
-                # Bearing Force is the absolute value of the force in the spring connecting the plate to the fastener.
-                # We already calculated this as 'star_forces'.
-                # However, we need to map it to the plate.
-                # We can do this in the first loop or here.
-                # Let's do it in the first loop to be cleaner, but we are here.
-                # Actually, let's move it to the first loop.
 
                 
                 temp_fastener_data.append({
@@ -722,7 +756,7 @@ class Joint1D:
                         row=plate.first_row + local_node,
                         legacy_id=1000 * (plate_index + 1) + (plate.first_row + local_node)
                     )
-            )
+                )
 
         bar_results: List[BarResult] = []
         for plate_index, plate in enumerate(self.plates):
@@ -782,6 +816,8 @@ class Joint1D:
                 for pi, ln, val in validated_forces
             ]
         )
+
+
 
 __all__ = [
     "Plate",
