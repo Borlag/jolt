@@ -639,9 +639,7 @@ def render_solution_tables(solution: JointSolution):
     node_dicts = solution.nodes_as_dicts()
     if pd is not None:
         df_nodes = pd.DataFrame(node_dicts)
-        # Reorder columns to match Boeing: X Location, Displacement, Net Bypass Load, Thickness, Bypass Area, Order, Multiple Thickness
         cols = ["Node ID", "X Location", "Displacement", "Net Bypass Load", "Thickness", "Bypass Area", "Order", "Multiple Thickness"]
-        # Filter existing columns
         cols = [c for c in cols if c in df_nodes.columns]
         
         st.dataframe(
@@ -680,7 +678,11 @@ def render_solution_tables(solution: JointSolution):
     fastener_dicts = solution.fasteners_as_dicts()
     if pd is not None:
         df_fast = pd.DataFrame(fastener_dicts)
-        cols = ["Row", "Load", "Brg Force Upper", "Brg Force Lower", "Stiffness", "Modulus", "Diameter", "Quantity", "Thickness Node 1", "Thickness Node 2"]
+        # Ensure ID column exists or use Row as fallback
+        if "ID" not in df_fast.columns and "Row" in df_fast.columns:
+             df_fast["ID"] = df_fast["Row"]
+             
+        cols = ["ID", "Load", "Brg Force Upper", "Brg Force Lower", "Stiffness", "Modulus", "Diameter", "Quantity", "Thickness Node 1", "Thickness Node 2"]
         cols = [c for c in cols if c in df_fast.columns]
         st.dataframe(
             df_fast[cols].style.format({
@@ -722,7 +724,7 @@ def render_solution_tables(solution: JointSolution):
     if classic_dicts:
         if pd is not None:
             df_classic = pd.DataFrame(classic_dicts)
-            cols = ["Row", "Thickness", "Area", "No of Fasteners", "Fastener Diameter", "Incoming Load", "Bypass Load", "Load Transfer", "L.Trans / P", "Detail Stress", "Bearing Stress", "Fbr / FDetail"]
+            cols = ["Node ID", "Thickness", "Area", "No of Fasteners", "Fastener Diameter", "Incoming Load", "Bypass Load", "Load Transfer", "L.Trans / P", "Detail Stress", "Bearing Stress", "Fbr / FDetail"]
             cols = [c for c in cols if c in df_classic.columns]
             st.dataframe(
                 df_classic[cols].style.format({
@@ -761,8 +763,12 @@ def render_solution_tables(solution: JointSolution):
     # 7. Min/Max Results
     st.subheader("Min/Max Results")
     max_fast_force = max([abs(f.force) for f in solution.fasteners]) if solution.fasteners else 0.0
-    max_plate_load = max([b.axial_force for b in solution.bars]) if solution.bars else 0.0
-    min_plate_load = min([b.axial_force for b in solution.bars]) if solution.bars else 0.0
+    
+    # Filter out "deleted" elements (gaps) which have ~0 stiffness
+    active_bars = [b for b in solution.bars if b.stiffness > 1e-9]
+    
+    max_plate_load = max([abs(b.axial_force) for b in active_bars]) if active_bars else 0.0
+    min_plate_load = min([abs(b.axial_force) for b in active_bars]) if active_bars else 0.0
     
     min_max_data = [
         {"Result": "Abs Max Fastener Force", "Load": max_fast_force, "Quantity": "1.0", "ID": ""}, # ID could be found
@@ -786,6 +792,29 @@ def render_solution_tables(solution: JointSolution):
         st.download_button("Export bars CSV", data=df_bars.to_csv(index=False).encode("utf-8"), file_name="bars.csv", mime="text/csv")
         if classic_dicts:
              st.download_button("Export classic results CSV", data=df_classic.to_csv(index=False).encode("utf-8"), file_name="classic_results.csv", mime="text/csv")
+
+    # 8. Force Balance Check
+    st.subheader("Force Balance Check")
+    
+    # Sum of Reactions
+    sum_reactions = sum([r.reaction for r in solution.reactions])
+    
+    # Sum of Applied Loads
+    sum_applied = 0.0
+    
+    # 1. Point forces
+    for item in solution.applied_forces:
+        sum_applied += item["Value"]
+        
+    # 2. Edge loads (Fx_left, Fx_right)
+    if solution.plates:
+        for plate in solution.plates:
+            sum_applied += plate.Fx_left
+            sum_applied += plate.Fx_right
+    
+    st.metric("Sum of Reactions", f"{sum_reactions:.4f}")
+    st.metric("Sum of Applied Loads", f"{sum_applied:.4f}")
+    st.metric("Residual (Reactions + Applied)", f"{sum_reactions + sum_applied:.4f}")
 
 
 def render_save_section(pitches, plates, fasteners, supports, point_forces):
