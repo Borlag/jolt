@@ -303,12 +303,18 @@ def _render_plates_section():
             plate.widths = None
         if not hasattr(plate, "thicknesses"):
             plate.thicknesses = None
+        if not hasattr(plate, "material_name"):
+            plate.material_name = None
             
         with st.expander(f"Layer {idx}: {plate.name}", expanded=False):
             c1, c2, c3 = st.columns(3)
             plate.name = c1.text_input("Name", plate.name, key=f"pl_name_{idx}_v{st.session_state.get('_widget_version', 0)}")
             plate.E = c2.number_input("E [psi]", 1e5, 5e8, plate.E, key=f"pl_E_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1e5, format="%.0f")
             plate.t = c3.number_input("t [in]", 0.001, 2.0, plate.t, key=f"pl_t_{idx}_v{st.session_state.get('_widget_version', 0)}", step=0.001, format="%.3f")
+            
+            # Material Name Input
+            plate.material_name = st.text_input("Material Name", plate.material_name or "", key=f"pl_mat_{idx}_v{st.session_state.get('_widget_version', 0)}")
+
             d1, d2, _ = st.columns(3)
             max_first_allowed = max(1, n_rows - 1) if n_rows > 1 else 1
             first_row_value = max(1, min(int(plate.first_row), max_first_allowed))
@@ -690,183 +696,215 @@ def _load_example_figure76():
     st.rerun()
 
 def render_solution_tables(solution: JointSolution):
-    # 1. Nodes Table
-    st.subheader("Nodes")
-    node_dicts = solution.nodes_as_dicts()
-    if pd is not None:
-        df_nodes = pd.DataFrame(node_dicts)
-        cols = ["Node ID", "X Location", "Displacement", "Net Bypass Load", "Thickness", "Bypass Area", "Order", "Multiple Thickness"]
-        cols = [c for c in cols if c in df_nodes.columns]
+    # Global Controls
+    col_exp, col_col, _ = st.columns([1, 1, 4])
+    if col_exp.button("Expand All"):
+        st.session_state["_results_expanded"] = True
+    if col_col.button("Collapse All"):
+        st.session_state["_results_expanded"] = False
         
-        st.dataframe(
-            df_nodes[cols].style.format(
-                {
-                    "X Location": "{:.3f}",
-                    "Displacement": "{:.6e}",
-                    "Net Bypass Load": "{:.1f}",
-                    "Thickness": "{:.3f}",
-                    "Bypass Area": "{:.3f}",
-                }
-            ),
-            width="stretch",
-            hide_index=True,
-        )
-    else:
-        st.table(node_dicts)
+    expanded_state = st.session_state.get("_results_expanded", False)
 
-    # 2. Plates Table (Bars)
-    st.subheader("Plates")
-    bar_dicts = solution.bars_as_dicts()
-    if pd is not None:
-        df_bars = pd.DataFrame(bar_dicts)
-        cols = ["ID", "Axial Force", "Stiffness", "Modulus"]
-        cols = [c for c in cols if c in df_bars.columns]
-        st.dataframe(
-            df_bars[cols].style.format({"Axial Force": "{:.1f}", "Stiffness": "{:.2e}", "Modulus": "{:.3e}"}),
-            width="stretch",
-            hide_index=True,
-        )
-    else:
-        st.table(bar_dicts)
-
-    # 3. Fasteners Table
-    st.subheader("Fasteners")
-    fastener_dicts = solution.fasteners_as_dicts()
-    if pd is not None:
-        df_fast = pd.DataFrame(fastener_dicts)
-        # Ensure ID column exists or use Row as fallback
-        if "ID" not in df_fast.columns and "Row" in df_fast.columns:
-             df_fast["ID"] = df_fast["Row"]
-             
-        cols = ["ID", "Load", "Brg Force Upper", "Brg Force Lower", "Stiffness", "Modulus", "Diameter", "Quantity", "Thickness Node 1", "Thickness Node 2"]
-        cols = [c for c in cols if c in df_fast.columns]
-        st.dataframe(
-            df_fast[cols].style.format({
-                "Load": "{:.1f}", 
-                "Brg Force Upper": "{:.1f}",
-                "Brg Force Lower": "{:.1f}",
-                "Stiffness": "{:.2e}", 
-                "Modulus": "{:.3e}",
-                "Diameter": "{:.3f}",
-                "Quantity": "{:.1f}",
-                "Thickness Node 1": "{:.3f}",
-                "Thickness Node 2": "{:.3f}",
-            }),
-            width="stretch",
-            hide_index=True,
-        )
-    else:
-        st.table(fastener_dicts)
-
-    # 4. Reactions Table
-    if solution.reactions:
-        st.subheader("Reactions")
-        reaction_dicts = solution.reactions_as_dicts()
+    # 1. Nodes Table
+    with st.expander("Nodes", expanded=expanded_state):
+        node_dicts = solution.nodes_as_dicts()
         if pd is not None:
-            df_react = pd.DataFrame(reaction_dicts)
-            cols = ["Node ID", "Force"]
-            cols = [c for c in cols if c in df_react.columns]
+            df_nodes = pd.DataFrame(node_dicts)
+            cols = ["Node ID", "X Location", "Displacement", "Net Bypass Load", "Thickness", "Bypass Area", "Order", "Multiple Thickness"]
+            cols = [c for c in cols if c in df_nodes.columns]
+            
             st.dataframe(
-                df_react[cols].style.format({"Force": "{:.1f}"}),
+                df_nodes[cols].style.format(
+                    {
+                        "X Location": "{:.3f}",
+                        "Displacement": "{:.6e}",
+                        "Net Bypass Load": "{:.1f}",
+                        "Thickness": "{:.3f}",
+                        "Bypass Area": "{:.3f}",
+                    }
+                ),
                 width="stretch",
                 hide_index=True,
             )
         else:
-            st.table(reaction_dicts)
-            
-    # 5. Classic Results
-    st.subheader("Classic Results")
-    classic_dicts = solution.classic_results_as_dicts()
-    if classic_dicts:
+            st.table(node_dicts)
+
+    # 2. Plates Table (Bars)
+    with st.expander("Plates", expanded=expanded_state):
+        bar_dicts = solution.bars_as_dicts()
         if pd is not None:
-            df_classic = pd.DataFrame(classic_dicts)
-            cols = ["Element", "Node", "Thickness", "Area", "Incoming Load", "Bypass Load", "Load Transfer", "L.Trans / P", "Detail Stress", "Bearing Stress", "Fbr / FDetail"]
-            cols = [c for c in cols if c in df_classic.columns]
+            df_bars = pd.DataFrame(bar_dicts)
+            cols = ["ID", "Axial Force", "Stiffness", "Modulus"]
+            cols = [c for c in cols if c in df_bars.columns]
             st.dataframe(
-                df_classic[cols].style.format({
-                    "Node": "{:.0f}",
-                    "Thickness": "{:.3f}",
-                    "Area": "{:.3f}",
-                    "Incoming Load": "{:.1f}",
-                    "Bypass Load": "{:.1f}",
-                    "Load Transfer": "{:.1f}",
-                    "L.Trans / P": "{:.3f}",
-                    "Detail Stress": "{:.0f}",
-                    "Bearing Stress": "{:.0f}",
-                    "Fbr / FDetail": "{:.3f}",
+                df_bars[cols].style.format({"Axial Force": "{:.1f}", "Stiffness": "{:.2e}", "Modulus": "{:.3e}"}),
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            st.table(bar_dicts)
+
+    # 3. Fasteners Table
+    with st.expander("Fasteners", expanded=expanded_state):
+        fastener_dicts = solution.fasteners_as_dicts()
+        if pd is not None:
+            df_fast = pd.DataFrame(fastener_dicts)
+            # Ensure ID column exists or use Row as fallback
+            if "ID" not in df_fast.columns and "Row" in df_fast.columns:
+                 df_fast["ID"] = df_fast["Row"]
+                 
+            cols = ["ID", "Load", "Brg Force Upper", "Brg Force Lower", "Stiffness", "Modulus", "Diameter", "Quantity", "Thickness Node 1", "Thickness Node 2"]
+            cols = [c for c in cols if c in df_fast.columns]
+            st.dataframe(
+                df_fast[cols].style.format({
+                    "Load": "{:.1f}", 
+                    "Brg Force Upper": "{:.1f}",
+                    "Brg Force Lower": "{:.1f}",
+                    "Stiffness": "{:.2e}", 
+                    "Modulus": "{:.3e}",
+                    "Diameter": "{:.3f}",
+                    "Quantity": "{:.1f}",
+                    "Thickness Node 1": "{:.3f}",
+                    "Thickness Node 2": "{:.3f}",
                 }),
                 width="stretch",
                 hide_index=True,
             )
         else:
-            st.table(classic_dicts)
+            st.table(fastener_dicts)
+
+    # 4. Reactions Table
+    if solution.reactions:
+        with st.expander("Reactions", expanded=expanded_state):
+            reaction_dicts = solution.reactions_as_dicts()
+            if pd is not None:
+                df_react = pd.DataFrame(reaction_dicts)
+                cols = ["Node ID", "Force"]
+                cols = [c for c in cols if c in df_react.columns]
+                st.dataframe(
+                    df_react[cols].style.format({"Force": "{:.1f}"}),
+                    width="stretch",
+                    hide_index=True,
+                )
+            else:
+                st.table(reaction_dicts)
+            
+    # 5. Classic Results
+    with st.expander("Classic Results", expanded=expanded_state):
+        classic_dicts = solution.classic_results_as_dicts()
+        if classic_dicts:
+            if pd is not None:
+                df_classic = pd.DataFrame(classic_dicts)
+                cols = ["Element", "Node", "Thickness", "Area", "Incoming Load", "Bypass Load", "Load Transfer", "L.Trans / P", "Detail Stress", "Bearing Stress", "Fbr / FDetail"]
+                cols = [c for c in cols if c in df_classic.columns]
+                st.dataframe(
+                    df_classic[cols].style.format({
+                        "Node": "{:.0f}",
+                        "Thickness": "{:.3f}",
+                        "Area": "{:.3f}",
+                        "Incoming Load": "{:.1f}",
+                        "Bypass Load": "{:.1f}",
+                        "Load Transfer": "{:.1f}",
+                        "L.Trans / P": "{:.3f}",
+                        "Detail Stress": "{:.0f}",
+                        "Bearing Stress": "{:.0f}",
+                        "Fbr / FDetail": "{:.3f}",
+                    }),
+                    width="stretch",
+                    hide_index=True,
+                )
+            else:
+                st.table(classic_dicts)
+        else:
+            st.info("No classic results available (requires fasteners).")
 
     # 6. Loads
     if solution.applied_forces:
-        st.subheader("Loads")
+        with st.expander("Loads", expanded=expanded_state):
+            if pd is not None:
+                df_loads = pd.DataFrame(solution.applied_forces)
+                cols = ["Value", "Reference Node"]
+                st.dataframe(
+                    df_loads[cols].style.format({"Value": "{:.1f}"}),
+                    width="stretch",
+                    hide_index=True,
+                )
+            else:
+                st.table(solution.applied_forces)
+
+    # 7. Min/Max Results
+    with st.expander("Min/Max Results", expanded=expanded_state):
+        # Find Max Fastener Force
+        max_fast_force = 0.0
+        max_fast_id = "-"
+        if solution.fasteners:
+            # Find fastener with max absolute force
+            max_f = max(solution.fasteners, key=lambda f: abs(f.force))
+            max_fast_force = abs(max_f.force)
+            max_fast_id = f"{1000 * (max_f.plate_i + 1) + max_f.row}-{1000 * (max_f.plate_j + 1) + max_f.row}"
+
+        # Filter out "deleted" elements (gaps) which have ~0 stiffness
+        active_bars = [b for b in solution.bars if b.stiffness > 1e-9]
+        
+        max_plate_load = 0.0
+        max_plate_id = "-"
+        min_plate_load = 0.0
+        min_plate_id = "-"
+
+        if active_bars:
+            # Max Plate Load
+            max_b = max(active_bars, key=lambda b: abs(b.axial_force))
+            max_plate_load = abs(max_b.axial_force)
+            max_plate_id = f"{1000 * (max_b.plate_id + 1) + (max_b.segment + 1)}-{1000 * (max_b.plate_id + 1) + (max_b.segment + 2)}"
+
+            # Min Plate Load
+            min_b = min(active_bars, key=lambda b: abs(b.axial_force))
+            min_plate_load = abs(min_b.axial_force)
+            min_plate_id = f"{1000 * (min_b.plate_id + 1) + (min_b.segment + 1)}-{1000 * (min_b.plate_id + 1) + (min_b.segment + 2)}"
+        
+        min_max_data = [
+            {"Result": "Abs Max Fastener Force", "Load": max_fast_force, "Quantity": "1.0", "ID": max_fast_id},
+            {"Result": "Max Plate Load", "Load": max_plate_load, "Quantity": "", "ID": max_plate_id},
+            {"Result": "Min Plate Load", "Load": min_plate_load, "Quantity": "", "ID": min_plate_id},
+        ]
+        
         if pd is not None:
-            df_loads = pd.DataFrame(solution.applied_forces)
-            cols = ["Value", "Reference Node"]
             st.dataframe(
-                df_loads[cols].style.format({"Value": "{:.1f}"}),
+                pd.DataFrame(min_max_data).style.format({"Load": "{:.1f}"}),
                 width="stretch",
                 hide_index=True,
             )
         else:
-            st.table(solution.applied_forces)
-
-    # 7. Min/Max Results
-    st.subheader("Min/Max Results")
-    max_fast_force = max([abs(f.force) for f in solution.fasteners]) if solution.fasteners else 0.0
-    
-    # Filter out "deleted" elements (gaps) which have ~0 stiffness
-    active_bars = [b for b in solution.bars if b.stiffness > 1e-9]
-    
-    max_plate_load = max([abs(b.axial_force) for b in active_bars]) if active_bars else 0.0
-    min_plate_load = min([abs(b.axial_force) for b in active_bars]) if active_bars else 0.0
-    
-    min_max_data = [
-        {"Result": "Abs Max Fastener Force", "Load": max_fast_force, "Quantity": "1.0", "ID": ""}, # ID could be found
-        {"Result": "Max Plate Load", "Load": max_plate_load, "Quantity": "", "ID": ""},
-        {"Result": "Min Plate Load", "Load": min_plate_load, "Quantity": "", "ID": ""},
-    ]
-    
-    if pd is not None:
-        st.dataframe(
-            pd.DataFrame(min_max_data).style.format({"Load": "{:.1f}"}),
-            width="stretch",
-            hide_index=True,
-        )
-    else:
-        st.table(min_max_data)
+            st.table(min_max_data)
 
     # Exports
-    if pd is not None:
-        st.download_button("Export fasteners CSV", data=df_fast.to_csv(index=False).encode("utf-8"), file_name="fasteners.csv", mime="text/csv")
-        st.download_button("Export nodes CSV", data=df_nodes.to_csv(index=False).encode("utf-8"), file_name="nodes.csv", mime="text/csv")
-        st.download_button("Export bars CSV", data=df_bars.to_csv(index=False).encode("utf-8"), file_name="bars.csv", mime="text/csv")
-        if classic_dicts:
-             st.download_button("Export classic results CSV", data=df_classic.to_csv(index=False).encode("utf-8"), file_name="classic_results.csv", mime="text/csv")
+    with st.expander("Exports", expanded=expanded_state):
+        if pd is not None:
+            st.download_button("Export fasteners CSV", data=df_fast.to_csv(index=False).encode("utf-8"), file_name="fasteners.csv", mime="text/csv")
+            st.download_button("Export nodes CSV", data=df_nodes.to_csv(index=False).encode("utf-8"), file_name="nodes.csv", mime="text/csv")
+            st.download_button("Export bars CSV", data=df_bars.to_csv(index=False).encode("utf-8"), file_name="bars.csv", mime="text/csv")
+            if classic_dicts:
+                 st.download_button("Export classic results CSV", data=df_classic.to_csv(index=False).encode("utf-8"), file_name="classic_results.csv", mime="text/csv")
 
     # 8. Force Balance Check
-    st.subheader("Force Balance Check")
-    
-    # Sum of Applied Loads
-    sum_applied = sum([f.get("Value", 0.0) for f in solution.applied_forces])
-    
-    # Add Edge loads (Fx_left, Fx_right)
-    if solution.plates:
-        for plate in solution.plates:
-            sum_applied += plate.Fx_left
-            sum_applied += plate.Fx_right
+    with st.expander("Force Balance Check", expanded=expanded_state):
+        
+        # Sum of Applied Loads
+        sum_applied = sum([f.get("Value", 0.0) for f in solution.applied_forces])
+        
+        # Add Edge loads (Fx_left, Fx_right)
+        if solution.plates:
+            for plate in solution.plates:
+                sum_applied += plate.Fx_left
+                sum_applied += plate.Fx_right
 
-    sum_reactions = sum([r.reaction for r in solution.reactions])
-    residual = sum_applied + sum_reactions
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Sum Applied Loads", f"{sum_applied:.1f}")
-    c2.metric("Sum Reactions", f"{sum_reactions:.1f}")
-    c3.metric("Residual", f"{residual:.1e}")
+        sum_reactions = sum([r.reaction for r in solution.reactions])
+        residual = sum_applied + sum_reactions
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Sum Applied Loads", f"{sum_applied:.1f}")
+        c2.metric("Sum Reactions", f"{sum_reactions:.1f}")
+        c3.metric("Residual", f"{residual:.1e}")
 
     st.caption("Note: Tables display force magnitudes. See visualization for direction.")
 

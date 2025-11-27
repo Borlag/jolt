@@ -135,7 +135,7 @@ def render_joint_diagram_plotly(
             y=y_plot,
             mode="lines",
             line=dict(width=4),
-            name=plate.name,
+            name=f"{plate.name} ({plate.material_name})" if plate.material_name else plate.name,
             legendgroup=plate.name,
             connectgaps=False 
         ))

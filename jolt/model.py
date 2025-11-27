@@ -28,6 +28,7 @@ class Plate:
     A_strip: List[float]
     widths: Optional[List[float]] = None
     thicknesses: Optional[List[float]] = None
+    material_name: Optional[str] = None
     Fx_left: float = 0.0
     Fx_right: float = 0.0
 
