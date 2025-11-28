@@ -63,6 +63,7 @@ def serialize_configuration(
     label: str,
     unloading: str,
     point_forces: Optional[Sequence[Tuple[int, int, float]]] = None,
+    description: str = "",
 ) -> Dict[str, Any]:
     configuration = JointConfiguration(
         pitches=list(pitches),
@@ -75,6 +76,7 @@ def serialize_configuration(
         ],
         label=label,
         unloading=unloading,
+        description=description,
     )
     return configuration.to_dict()
 

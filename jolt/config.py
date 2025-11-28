@@ -158,6 +158,7 @@ class JointConfiguration:
     point_forces: PointForces = field(default_factory=list)
     label: str = ""
     unloading: str = ""
+    description: str = ""
 
     def build_model(self) -> Joint1D:
         """Create a :class:`Joint1D` model for this configuration."""
@@ -170,6 +171,7 @@ class JointConfiguration:
         payload: Dict[str, Any] = {
             "label": self.label,
             "unloading": self.unloading,
+            "description": self.description,
             "pitches": list(self.pitches),
             "plates": [plate_to_dict(plate) for plate in self.plates],
             "fasteners": [fastener_to_dict(fastener) for fastener in self.fasteners],
@@ -195,6 +197,7 @@ class JointConfiguration:
         point_forces = _point_forces_from_data(data.get("point_forces", []))
         label = str(data.get("label", ""))
         unloading = str(data.get("unloading", ""))
+        description = str(data.get("description", ""))
         return cls(
             pitches=pitches,
             plates=plates,
@@ -203,6 +206,7 @@ class JointConfiguration:
             point_forces=point_forces,
             label=label,
             unloading=unloading,
+            description=description,
         )
 
     @classmethod

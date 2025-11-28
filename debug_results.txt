@@ -1,28 +1,23 @@
-DEBUG: Row 2 Interface 0: t1=0.04, t2=0.04
-DEBUG: Excess C=0.0000e+00, Correction=0.0000e+00
-DEBUG: C_old_1=4.9600e-06, C_old_2=4.9600e-06
-DEBUG: C_new_1=4.9600e-06, C_new_2=4.9600e-06
-DEBUG: Row 3 Interface 0: t1=0.063, t2=0.04
-DEBUG: Excess C=1.0680e-08, Correction=5.3400e-09
-DEBUG: C_old_1=3.3490e-06, C_old_2=4.9600e-06
-DEBUG: C_new_1=3.3436e-06, C_new_2=4.9546e-06
-DEBUG: Row 3 Interface 1: t1=0.04, t2=0.04
-DEBUG: Excess C=0.0000e+00, Correction=0.0000e+00
-DEBUG: C_old_1=4.9546e-06, C_old_2=4.9600e-06
-DEBUG: C_new_1=4.9546e-06, C_new_2=4.9600e-06
-DEBUG: Row 4 Interface 0: t1=0.063, t2=0.04
-DEBUG: Excess C=1.0680e-08, Correction=5.3400e-09
-DEBUG: C_old_1=3.3490e-06, C_old_2=4.9600e-06
-DEBUG: C_new_1=3.3436e-06, C_new_2=4.9546e-06
-DEBUG: Row 4 Interface 1: t1=0.04, t2=0.04
-DEBUG: Excess C=0.0000e+00, Correction=0.0000e+00
-DEBUG: C_old_1=4.9546e-06, C_old_2=4.9600e-06
-DEBUG: C_new_1=4.9546e-06, C_new_2=4.9600e-06
-DEBUG: Row 5 Interface 0: t1=0.063, t2=0.04
-DEBUG: Excess C=1.0680e-08, Correction=5.3400e-09
-DEBUG: C_old_1=3.3490e-06, C_old_2=4.9600e-06
-DEBUG: C_new_1=3.3436e-06, C_new_2=4.9546e-06
-DEBUG: Row 5 Interface 1: t1=0.04, t2=0.04
-DEBUG: Excess C=0.0000e+00, Correction=0.0000e+00
-DEBUG: C_old_1=4.9546e-06, C_old_2=4.9600e-06
-DEBUG: C_new_1=4.9546e-06, C_new_2=4.9600e-06
+--- Force Balance Check ---
+Applied Right: 1000.0
+Applied Left: 0.0
+Reactions:
+ReactionResult(plate_id=1, plate_name='Doubler', local_node=0, global_node=1, reaction=-999.9999999999989)
+Sum React Right: 0.0
+Sum React Left: 999.9999999999989
+Total Right: 1000.0
+Total Left: 999.9999999999989
+Diff: 1.1368683772161603e-12
+
+--- Fatigue Results (Node 1008) ---
+Node 1008:
+  SSF: 8.906615545257987
+  Bearing: 268.1182884494931
+  Bypass: 0.0
+  Ktb: 1.2797375081116158
+  Theta: 1.3865425531914892
+  Sigma Ref: 4001.7654992461653
+  Term Bearing: 35642.186804062985
+  Term Bypass: 0.0
+  Thickness: 0.071
+  Bypass Area: 0.067

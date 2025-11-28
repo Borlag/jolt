@@ -5,6 +5,7 @@ import streamlit as st
 import pandas as pd
 import json
 import hashlib
+import math
 
 from jolt import Plate, FastenerRow, JointSolution, JointConfiguration
 from .utils import available_fastener_pairs
@@ -383,9 +384,6 @@ def _render_plates_section():
                             plate.thicknesses[seg] = t_val
                             plate.A_strip[seg] = w_val * t_val
                 else:
-                    # Clear W/T to indicate Area mode preference? Or just ignore them.
-                    # Better to keep them but maybe reset them if Area is changed?
-                    # For now, just show Area inputs.
                     same_area = st.checkbox("Same bypass area for all segments", value=True, key=f"sameA_{idx}_v{st.session_state.get('_widget_version', 0)}")
                     if same_area:
                         default_area = plate.A_strip[0] if plate.A_strip else 0.05
@@ -497,6 +495,52 @@ def _render_fasteners_section():
         b_E = bc5.number_input("Bolt E [psi]", 1e5, 5e8, 1e7, step=1e5, format="%.0f", key=f"bulk_E_v{st.session_state.get('_widget_version', 0)}")
         b_nu = bc6.number_input("Bolt ν", 0.0, 0.49, 0.3, step=0.01, format="%.2f", key=f"bulk_nu_v{st.session_state.get('_widget_version', 0)}")
         
+        # Bulk Countersink
+        st.markdown("**Bulk Countersink Settings**")
+        bcs1, bcs2, bcs3 = st.columns(3)
+        b_is_cs = bcs1.checkbox("Countersunk", value=False, key=f"bulk_iscs_v{st.session_state.get('_widget_version', 0)}")
+        
+        b_cs_depth = 0.0
+        b_cs_angle = 100.0
+        b_cs_affects_bypass = False
+        b_cs_layers = []
+        
+        if b_is_cs:
+            b_cs_depth = bcs2.number_input("CS Depth [in]", 0.0, 1.0, 0.0, step=0.001, format="%.3f", key=f"bulk_csd_v{st.session_state.get('_widget_version', 0)}")
+            b_cs_angle = bcs3.number_input("CS Angle [deg]", 0.0, 180.0, 100.0, step=1.0, key=f"bulk_csa_v{st.session_state.get('_widget_version', 0)}")
+            
+            bcs4, bcs5 = st.columns([1, 2])
+            b_cs_affects_bypass = bcs4.checkbox("Affects Bypass Area", value=False, help="If checked, reduces gross area for bypass stress calculation.", key=f"bulk_csab_v{st.session_state.get('_widget_version', 0)}")
+            
+            # Collect all layer names for dropdowns
+            layer_names = [p.name for p in st.session_state.plates]
+            b_cs_layers = bcs5.multiselect("CS Layers", options=layer_names, key=f"bulk_csl_v{st.session_state.get('_widget_version', 0)}")
+
+        # Bulk Fatigue Factors
+        st.markdown("**Bulk Fatigue Factors**")
+        bff1, bff2 = st.columns(2)
+        
+        # Define options mapping
+        alpha_options = {
+            "1.0 - Standard hole drilled": 1.0,
+            "1.1 - Drilled hole with deburring": 1.1,
+            "1.2 - Reamed hole": 1.2,
+            "1.3 - Cold worked hole": 1.3,
+            "0.9 - Rough drilled hole": 0.9,
+        }
+        beta_options = {
+            "1.0 - Standard fit": 1.0,
+            "0.8 - Interference fit": 0.8,
+            "1.2 - Clearance fit": 1.2,
+            "0.5 - Taper-Lok": 0.5,
+        }
+        
+        b_alpha_key = bff1.selectbox("Hole Condition (α)", list(alpha_options.keys()), index=0, key=f"bulk_alpha_v{st.session_state.get('_widget_version', 0)}")
+        b_beta_key = bff2.selectbox("Hole Filling (β)", list(beta_options.keys()), index=0, key=f"bulk_beta_v{st.session_state.get('_widget_version', 0)}")
+        
+        b_alpha = alpha_options[b_alpha_key]
+        b_beta = beta_options[b_beta_key]
+
         if st.button("Apply to Range"):
             # Create a map of existing fasteners by row for quick lookup/update
             existing_map = {f.row: i for i, f in enumerate(st.session_state.fasteners)}
@@ -506,14 +550,35 @@ def _render_fasteners_section():
                     # Update existing
                     idx = existing_map[r]
                     f = st.session_state.fasteners[idx]
-                    st.session_state.fasteners[idx] = replace(
-                        f, D=b_d, Eb=b_E, nu_b=b_nu, method=b_method
-                    )
+                    
+                    # Update basic props
+                    f = replace(f, D=b_d, Eb=b_E, nu_b=b_nu, method=b_method)
+                    
+                    # Update Fatigue props
+                    f = replace(f, hole_condition_factor=b_alpha, hole_filling_factor=b_beta)
+                    
+                    # Update CS props
+                    if b_is_cs:
+                        f = replace(f, is_countersunk=True, cs_depth=b_cs_depth, cs_angle=b_cs_angle, cs_affects_bypass=b_cs_affects_bypass, cs_layers=list(b_cs_layers))
+                    else:
+                        f = replace(f, is_countersunk=False) # Reset if unchecked? Or keep existing? Usually bulk apply overwrites.
+                    
+                    st.session_state.fasteners[idx] = f
                 else:
                     # Append new
-                    st.session_state.fasteners.append(
-                        FastenerRow(row=r, D=b_d, Eb=b_E, nu_b=b_nu, method=b_method)
+                    new_f = FastenerRow(
+                        row=r, 
+                        D=b_d, 
+                        Eb=b_E, 
+                        nu_b=b_nu, 
+                        method=b_method,
+                        hole_condition_factor=b_alpha,
+                        hole_filling_factor=b_beta
                     )
+                    if b_is_cs:
+                        new_f = replace(new_f, is_countersunk=True, cs_depth=b_cs_depth, cs_angle=b_cs_angle, cs_affects_bypass=b_cs_affects_bypass, cs_layers=list(b_cs_layers))
+                    st.session_state.fasteners.append(new_f)
+                    
             # Sort fasteners by row
             st.session_state.fasteners.sort(key=lambda x: x.row)
             st.success(f"Updated fasteners for rows {b_start}-{b_end}")
@@ -530,6 +595,23 @@ def _render_fasteners_section():
         "Morris", 
         "Manual"
     ]
+    
+    # SSF Factor Options
+    hole_conditions = {
+        "Standard hole drilled": 1.0,
+        "Broached or reamed": 0.9,
+        "Cold worked holes": 0.75 # Average of 0.7-0.8
+    }
+    
+    hole_fillings = {
+        "Open holes": 1.0,
+        "Lock bolt (steel)": 0.75,
+        "Rivets": 0.75,
+        "Threaded bolts": 0.825, # Average of 0.75-0.9
+        "Taper-Lok": 0.5,
+        "Hi-Lok": 0.75
+    }
+
     for idx, fastener in enumerate(st.session_state.fasteners):
         with st.expander(f"Fastener {idx + 1} — row {fastener.row}", expanded=(len(st.session_state.fasteners) <= 6)):
             c0, c1, c2, c3, c4 = st.columns([0.7, 0.8, 1.0, 0.7, 1.8])
@@ -552,6 +634,83 @@ def _render_fasteners_section():
                 fastener.k_manual = st.number_input(
                     "Manual k [lb/in]", 1.0, 1e12, fastener.k_manual or 1.0e6, key=f"fr_km_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1e5, format="%.0f"
                 )
+            
+            # --- Fatigue Configuration ---
+            st.markdown("---")
+            st.markdown("**Fatigue Configuration**")
+            
+            # Hole Configuration
+            h1, h2, h3, h4 = st.columns(4)
+            fastener.hole_centered = h1.checkbox("Centered Hole", value=fastener.hole_centered, key=f"fr_hc_{idx}")
+            if not fastener.hole_centered:
+                fastener.hole_offset = h2.number_input("Offset [in]", 0.0, 10.0, fastener.hole_offset, key=f"fr_ho_{idx}", step=0.001, format="%.3f")
+            else:
+                fastener.hole_offset = 0.0
+                h2.text_input("Offset", value="0.0 (Centered)", disabled=True, key=f"fr_ho_dis_{idx}")
+            
+            # Hole Condition (Alpha)
+            # Find closest key or default
+            alpha_key = "Standard hole drilled"
+            min_diff = 100.0
+            for k, v in hole_conditions.items():
+                if abs(fastener.hole_condition_factor - v) < min_diff:
+                    min_diff = abs(fastener.hole_condition_factor - v)
+                    alpha_key = k
+            
+            sel_alpha = h3.selectbox("Hole Condition (α)", list(hole_conditions.keys()), index=list(hole_conditions.keys()).index(alpha_key), key=f"fr_alpha_sel_{idx}")
+            fastener.hole_condition_factor = hole_conditions[sel_alpha]
+            
+            # Hole Filling (Beta)
+            beta_key = "Open holes"
+            min_diff = 100.0
+            for k, v in hole_fillings.items():
+                if abs(fastener.hole_filling_factor - v) < min_diff:
+                    min_diff = abs(fastener.hole_filling_factor - v)
+                    beta_key = k
+            
+            sel_beta = h4.selectbox("Hole Filling (β)", list(hole_fillings.keys()), index=list(hole_fillings.keys()).index(beta_key), key=f"fr_beta_sel_{idx}")
+            fastener.hole_filling_factor = hole_fillings[sel_beta]
+            
+            # Countersink Configuration
+            cs1, cs2 = st.columns([1, 3])
+            fastener.is_countersunk = cs1.checkbox("Countersunk", value=fastener.is_countersunk, key=f"fr_iscs_{idx}")
+            
+            if fastener.is_countersunk:
+                # CS Definition Mode
+                cs_mode = cs2.radio("CS Definition", ["Depth & Angle", "Depth & Diameter"], horizontal=True, key=f"fr_csmode_{idx}")
+                
+                csa1, csa2, csa3 = st.columns(3)
+                
+                # Depth is common
+                fastener.cs_depth = csa1.number_input("CS Depth [in]", 0.0, 1.0, fastener.cs_depth, key=f"fr_csdepth_{idx}", step=0.001, format="%.3f")
+                
+                if "Angle" in cs_mode:
+                    fastener.cs_angle = csa2.number_input("CS Angle [deg]", 0.0, 180.0, fastener.cs_angle, key=f"fr_csangle_{idx}", step=1.0)
+                else:
+                    # Diameter
+                    cs_diam = csa2.number_input("CS Diameter [in]", fastener.D, 5.0, fastener.D + 2 * fastener.cs_depth, key=f"fr_csdiam_{idx}")
+                    if fastener.cs_depth > 1e-6 and cs_diam > fastener.D:
+                        theta_rad = 2 * math.atan((cs_diam - fastener.D) / (2 * fastener.cs_depth))
+                        fastener.cs_angle = math.degrees(theta_rad)
+                
+                # Affected Layers
+                fastener.cs_layers = csa3.multiselect(
+                    "Countersunk Layers", 
+                    options=layer_names,
+                    default=fastener.cs_layers,
+                    key=f"fr_cslayers_{idx}"
+                )
+                
+                # Affects Bypass?
+                fastener.cs_affects_bypass = st.checkbox(
+                    "Reduce Bypass Area (Experimental)", 
+                    value=fastener.cs_affects_bypass,
+                    key=f"fr_csbypass_{idx}",
+                    help="If checked, the gross area for stress calculation will be reduced by the countersink void."
+                )
+
+            st.markdown("---")
+            
             available_pairs = available_fastener_pairs(fastener, st.session_state.plates)
             if available_pairs:
                 st.markdown("**Interfaces connected by this fastener**")
@@ -673,6 +832,7 @@ def _render_saved_configs_section():
             file_name=f"{export_name}.json",
             mime="application/json",
             key="export_saved_config",
+            # on_click=None # No callback needed
         )
         if "_last_loaded_config" in st.session_state:
             st.caption(f"Loaded: {st.session_state['_last_loaded_config']}")
@@ -788,167 +948,174 @@ def render_solution_tables(solution: JointSolution):
                 )
             else:
                 st.table(reaction_dicts)
-            
-    # 5. Classic Results
+                
+    # 5. Classic Results Table
     with st.expander("Classic Results", expanded=expanded_state):
         classic_dicts = solution.classic_results_as_dicts()
-        if classic_dicts:
-            if pd is not None:
-                df_classic = pd.DataFrame(classic_dicts)
-                cols = ["Element", "Node", "Thickness", "Area", "Incoming Load", "Bypass Load", "Load Transfer", "L.Trans / P", "Detail Stress", "Bearing Stress", "Fbr / FDetail"]
-                cols = [c for c in cols if c in df_classic.columns]
-                st.dataframe(
-                    df_classic[cols].style.format({
-                        "Node": "{:.0f}",
-                        "Thickness": "{:.3f}",
-                        "Area": "{:.3f}",
-                        "Incoming Load": "{:.1f}",
-                        "Bypass Load": "{:.1f}",
-                        "Load Transfer": "{:.1f}",
-                        "L.Trans / P": "{:.3f}",
-                        "Detail Stress": "{:.0f}",
-                        "Bearing Stress": "{:.0f}",
-                        "Fbr / FDetail": "{:.3f}",
-                    }),
-                    width="stretch",
-                    hide_index=True,
-                )
-            else:
-                st.table(classic_dicts)
-        else:
-            st.info("No classic results available (requires fasteners).")
-
-    # 6. Loads
-    if solution.applied_forces:
-        with st.expander("Loads", expanded=expanded_state):
-            if pd is not None:
-                df_loads = pd.DataFrame(solution.applied_forces)
-                cols = ["Value", "Reference Node"]
-                st.dataframe(
-                    df_loads[cols].style.format({"Value": "{:.1f}"}),
-                    width="stretch",
-                    hide_index=True,
-                )
-            else:
-                st.table(solution.applied_forces)
-
-    # 7. Min/Max Results
-    with st.expander("Min/Max Results", expanded=expanded_state):
-        # Find Max Fastener Force
-        max_fast_force = 0.0
-        max_fast_id = "-"
-        if solution.fasteners:
-            # Find fastener with max absolute force
-            max_f = max(solution.fasteners, key=lambda f: abs(f.force))
-            max_fast_force = abs(max_f.force)
-            max_fast_id = f"{1000 * (max_f.plate_i + 1) + max_f.row}-{1000 * (max_f.plate_j + 1) + max_f.row}"
-
-        # Filter out "deleted" elements (gaps) which have ~0 stiffness
-        active_bars = [b for b in solution.bars if b.stiffness > 1e-9]
-        
-        max_plate_load = 0.0
-        max_plate_id = "-"
-        min_plate_load = 0.0
-        min_plate_id = "-"
-
-        if active_bars:
-            # Max Plate Load
-            max_b = max(active_bars, key=lambda b: abs(b.axial_force))
-            max_plate_load = abs(max_b.axial_force)
-            max_plate_id = f"{1000 * (max_b.plate_id + 1) + (max_b.segment + 1)}-{1000 * (max_b.plate_id + 1) + (max_b.segment + 2)}"
-
-            # Min Plate Load
-            min_b = min(active_bars, key=lambda b: abs(b.axial_force))
-            min_plate_load = abs(min_b.axial_force)
-            min_plate_id = f"{1000 * (min_b.plate_id + 1) + (min_b.segment + 1)}-{1000 * (min_b.plate_id + 1) + (min_b.segment + 2)}"
-        
-        min_max_data = [
-            {"Result": "Abs Max Fastener Force", "Load": max_fast_force, "Quantity": "1.0", "ID": max_fast_id},
-            {"Result": "Max Plate Load", "Load": max_plate_load, "Quantity": "", "ID": max_plate_id},
-            {"Result": "Min Plate Load", "Load": min_plate_load, "Quantity": "", "ID": min_plate_id},
-        ]
-        
         if pd is not None:
+            df_classic = pd.DataFrame(classic_dicts)
+            cols = ["Element", "Node", "Thickness", "Area", "Incoming Load", "Bypass Load", "Load Transfer", "L.Trans / P", "Detail Stress", "Bearing Stress", "Fbr / FDetail"]
+            cols = [c for c in cols if c in df_classic.columns]
+            
             st.dataframe(
-                pd.DataFrame(min_max_data).style.format({"Load": "{:.1f}"}),
+                df_classic[cols].style.format({
+                    "Thickness": "{:.3f}",
+                    "Area": "{:.3f}",
+                    "Incoming Load": "{:.1f}",
+                    "Bypass Load": "{:.1f}",
+                    "Load Transfer": "{:.1f}",
+                    "L.Trans / P": "{:.3f}",
+                    "Detail Stress": "{:.1f}",
+                    "Bearing Stress": "{:.1f}",
+                    "Fbr / FDetail": "{:.3f}",
+                }),
                 width="stretch",
                 hide_index=True,
             )
         else:
-            st.table(min_max_data)
-
-    # Exports
-    with st.expander("Exports", expanded=expanded_state):
+            st.table(classic_dicts)
+            
+    # 6. Loads Table (Bearing/Bypass)
+    with st.expander("Loads", expanded=expanded_state):
+        bb_dicts = solution.bearing_bypass_as_dicts()
         if pd is not None:
-            st.download_button("Export fasteners CSV", data=df_fast.to_csv(index=False).encode("utf-8"), file_name="fasteners.csv", mime="text/csv")
-            st.download_button("Export nodes CSV", data=df_nodes.to_csv(index=False).encode("utf-8"), file_name="nodes.csv", mime="text/csv")
-            st.download_button("Export bars CSV", data=df_bars.to_csv(index=False).encode("utf-8"), file_name="bars.csv", mime="text/csv")
-            if classic_dicts:
-                 st.download_button("Export classic results CSV", data=df_classic.to_csv(index=False).encode("utf-8"), file_name="classic_results.csv", mime="text/csv")
-
+            df_bb = pd.DataFrame(bb_dicts)
+            st.dataframe(
+                df_bb.style.format({"Bearing [lb]": "{:.1f}", "Bypass [lb]": "{:.1f}"}),
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            st.table(bb_dicts)
+            
+    # 7. Min/Max Results
+    with st.expander("Min/Max Results", expanded=expanded_state):
+        # Calculate min/max
+        max_disp = max([abs(n.displacement) for n in solution.nodes]) if solution.nodes else 0.0
+        max_load = max([abs(b.axial_force) for b in solution.bars]) if solution.bars else 0.0
+        max_shear = max([abs(f.force) for f in solution.fasteners]) if solution.fasteners else 0.0
+        
+        st.write(f"**Max Displacement:** {max_disp:.6e} in")
+        st.write(f"**Max Axial Load:** {max_load:.1f} lb")
+        st.write(f"**Max Fastener Shear:** {max_shear:.1f} lb")
+        
     # 8. Force Balance Check
     with st.expander("Force Balance Check", expanded=expanded_state):
+        # Sum of External Forces
+        sum_ext_right = 0.0
+        sum_ext_left = 0.0
         
-        # Sum of Applied Loads
-        sum_applied = sum([f.get("Value", 0.0) for f in solution.applied_forces])
+        # Plate Ends
+        for p in solution.plates:
+            if p.Fx_right > 0: sum_ext_right += p.Fx_right
+            else: sum_ext_left += abs(p.Fx_right)
+            if p.Fx_left > 0: sum_ext_right += p.Fx_left
+            else: sum_ext_left += abs(p.Fx_left)
+            
+        # Applied Point Forces
+        for f in solution.applied_forces:
+            val = f.get("Value", 0.0)
+            if val > 0: sum_ext_right += val
+            else: sum_ext_left += abs(val)
+            
+        # Reactions
+        sum_react_right = 0.0
+        sum_react_left = 0.0
+        for r in solution.reactions:
+            if r.reaction > 0: sum_react_right += r.reaction
+            else: sum_react_left += abs(r.reaction)
+            
+        total_right = sum_ext_right + sum_react_right
+        total_left = sum_ext_left + sum_react_left
         
-        # Add Edge loads (Fx_left, Fx_right)
-        if solution.plates:
-            for plate in solution.plates:
-                sum_applied += plate.Fx_left
-                sum_applied += plate.Fx_right
-
-        sum_reactions = sum([r.reaction for r in solution.reactions])
-        residual = sum_applied + sum_reactions
+        diff = total_right - total_left
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("Sum Applied Loads", f"{sum_applied:.1f}")
-        c2.metric("Sum Reactions", f"{sum_reactions:.1f}")
-        c3.metric("Residual", f"{residual:.1e}")
+        c1.metric("Total Rightward Force", f"{total_right:.1f} lb")
+        c2.metric("Total Leftward Force", f"{total_left:.1f} lb")
+        c3.metric("Net Force (Imbalance)", f"{diff:.1e} lb", delta_color="inverse")
+        
+        if abs(diff) > 1e-3:
+            st.error("Warning: Significant force imbalance detected!")
+        else:
+            st.success("System is in equilibrium.")
 
-    st.caption("Note: Tables display force magnitudes. See visualization for direction.")
+    # 9. Fatigue Analysis (SSF)
+    with st.expander("Fatigue Analysis (SSF)", expanded=expanded_state):
+        if solution.fatigue_results:
+            fatigue_dicts = solution.fatigue_results_as_dicts()
+            if pd is not None:
+                df_fatigue = pd.DataFrame(fatigue_dicts)
+                
+                # Highlight Critical Node
+                def highlight_crit(row):
+                    if row["node_id"] == solution.critical_node_id:
+                        return ['background-color: #ffcccc'] * len(row)
+                    return [''] * len(row)
 
-
-def render_save_section(pitches, plates, fasteners, supports, point_forces):
-    st.divider()
-    with st.expander("Save / export configuration", expanded=False):
-        default_label = st.session_state.config_label or f"Case {len(st.session_state.saved_models) + 1}"
-        label = st.text_input("Configuration label", default_label, key="save_cfg_label")
-        unloading_note = st.text_input(
-            "Unloading / load case description",
-            st.session_state.config_unloading,
-            key="save_cfg_unloading",
-        )
-        config_dict = serialize_configuration(
-            pitches=pitches,
-            plates=plates,
-            fasteners=fasteners,
-            supports=supports,
-            label=label,
-            unloading=unloading_note,
-            point_forces=point_forces,
-        )
-        feedback = st.session_state.pop("_save_feedback", None)
-        if feedback:
-            st.success(feedback)
-        save_col, download_col = st.columns([1, 1])
-        if save_col.button("💾 Save to session", key="save_cfg_button"):
-            st.session_state.config_label = label
-            st.session_state.config_unloading = unloading_note
-            existing = next((idx for idx, cfg in enumerate(st.session_state.saved_models) if cfg["label"] == label), None)
-            if existing is not None:
-                st.session_state.saved_models[existing] = config_dict
-                st.session_state["_save_feedback"] = f"Updated saved configuration '{label}'."
+                cols = ["node_id", "plate_name", "ktg", "ktn", "ktb", "theta", "ssf", "bearing_load", "bypass_load", "sigma_ref"]
+                cols = [c for c in cols if c in df_fatigue.columns]
+                
+                st.dataframe(
+                    df_fatigue[cols].style.format({
+                        "ktg": "{:.2f}",
+                        "ktn": "{:.2f}",
+                        "ktb": "{:.2f}",
+                        "theta": "{:.2f}",
+                        "ssf": "{:.2f}",
+                        "bearing_load": "{:.1f}",
+                        "bypass_load": "{:.1f}",
+                        "sigma_ref": "{:.1f}",
+                    }).apply(highlight_crit, axis=1),
+                    width="stretch",
+                    hide_index=True,
+                )
+                
+                if solution.critical_node_id:
+                    st.error(f"Critical Node: {solution.critical_node_id}")
             else:
-                st.session_state.saved_models.append(config_dict)
-                st.session_state["_save_feedback"] = f"Saved configuration '{label}'."
-            st.rerun()
-        download_payload = json.dumps(config_dict, indent=2).encode("utf-8")
-        file_stub = label.strip().replace(" ", "_") or "configuration"
-        download_col.download_button(
-            "⬇️ Download JSON",
-            data=download_payload,
-            file_name=f"{file_stub}.json",
-            mime="application/json",
-            key="download_cfg_json",
-        )
+                st.table(fatigue_dicts)
+        else:
+            st.info("No fatigue results available (check fastener rows).")
+
+def render_save_section(
+    pitches: List[float],
+    plates: List[Plate],
+    fasteners: List[FastenerRow],
+    supports: List[Tuple[int, int, float]],
+    point_forces: Dict[int, float],
+):
+    st.markdown("---")
+    st.subheader("Save Configuration")
+    c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
+    label = c1.text_input(
+        "Label for this case",
+        value=st.session_state.get("config_label", ""),
+        key="config_label_input",
+    )
+    if c2.button("Save Case"):
+        if not label:
+            st.error("Please provide a label.")
+        else:
+            config = serialize_configuration(
+                label=label,
+                pitches=pitches,
+                plates=plates,
+                fasteners=fasteners,
+                supports=supports,
+                unloading=st.session_state.get("config_unloading", ""),
+                point_forces=[],
+                description=f"Saved on {pd.Timestamp.now()}" if pd is not None else "Saved configuration"
+            )
+            st.session_state.saved_models.append(config)
+            st.success(f"Configuration '{label}' saved.")
+            
+            # Offer download immediately
+            json_str = json.dumps(config, indent=2)
+            st.download_button(
+                label="⬇️ Download JSON",
+                data=json_str,
+                file_name=f"{label.strip().replace(' ', '_')}.json",
+                mime="application/json",
+                key=f"save_download_{pd.Timestamp.now().timestamp()}"
+            )

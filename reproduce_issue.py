@@ -1,98 +1,200 @@
-from jolt.model import Plate, FastenerRow, Joint1D
 
-def reproduce():
-    # Case 1 Configuration from User
-    pitches = [1.128] * 6  # User JSON has 6 pitches
-    E_sheet = 1.05e7
-    E_bolt = 1.04e7
-    nu_bolt = 0.30
-    diameter = 0.188
+import json
+from jolt.model import Joint1D, Plate, FastenerRow, JointSolution
+from jolt.inputs import process_node_based
+import jolt.fatigue as fatigue
 
-    # Note: User JSON indices are 0-based for plates in connections/supports, 
-    # but 1-based for rows in Plate definitions? 
-    # Let's look at the JSON:
-    # Tripler: first_row=3, last_row=6. 
-    # Doubler: first_row=2, last_row=6.
-    # Skin: first_row=1, last_row=5.
-    # Fasteners at rows 2, 3, 4, 5.
-    
-    # Plate order in JSON: Tripler (0), Doubler (1), Skin (2)
-    
-    tripler = Plate(
-        name="Tripler",
-        E=E_sheet,
-        t=0.063,
-        first_row=3,
-        last_row=6,
-        A_strip=[0.071, 0.071, 0.071],
-    )
-    doubler = Plate(
-        name="Doubler",
-        E=E_sheet,
-        t=0.040,
-        first_row=2,
-        last_row=6,
-        A_strip=[0.045, 0.045, 0.045, 0.045],
-    )
-    skin = Plate(
-        name="Skin",
-        E=E_sheet,
-        t=0.040,
-        first_row=1,
-        last_row=5,
-        A_strip=[0.045, 0.045, 0.045, 0.045],
-        Fx_left=1000.0,
-    )
-
-    plates = [tripler, doubler, skin]
-
-    # Fasteners
-    # Row 2: Connects Doubler(1) and Skin(2)
-    # Row 3, 4, 5: Connects Tripler(0)-Doubler(1) and Doubler(1)-Skin(2)
-    
-    # Note: The current FastenerRow.connections expects plate indices.
-    # In the JSON: 
-    # Row 2 connections: [[1, 2]] -> Doubler-Skin
-    # Row 3 connections: [[0, 1], [1, 2]] -> Tripler-Doubler, Doubler-Skin
-    
-    fasteners = []
-    
-    # Row 2
-    fasteners.append(FastenerRow(
-        row=2, D=diameter, Eb=E_bolt, nu_b=nu_bolt, method="Boeing69",
-        connections=[(1, 2)]
-    ))
-    
-    # Rows 3, 4, 5
-    for r in [3, 4, 5]:
-        fasteners.append(FastenerRow(
-            row=r, D=diameter, Eb=E_bolt, nu_b=nu_bolt, method="Boeing69",
-            connections=[(0, 1), (1, 2)]
-        ))
-
-    # Supports
-    # Tripler (0) at local node 3 (end) -> Fixed
-    # Doubler (1) at local node 4 (end) -> Fixed
-    # Note: segment_count = last_row - first_row.
-    # Tripler: 6-3 = 3 segments. Local nodes 0,1,2,3.
-    # Doubler: 6-2 = 4 segments. Local nodes 0,1,2,3,4.
-    supports = [
-        (0, 3, 0.0), # Tripler end
-        (1, 4, 0.0), # Doubler end
+# Configuration from user
+config_json = """
+{
+  "label": "Case_6_2_elements_row_D",
+  "unloading": "",
+  "pitches": [
+    1.125,
+    1.125,
+    1.125,
+    1.125,
+    1.125,
+    1.125,
+    1.125,
+    1.125,
+    1.125
+  ],
+  "plates": [
+    {
+      "name": "Tripler",
+      "E": 10000000.0,
+      "t": 0.071,
+      "first_row": 2,
+      "last_row": 8,
+      "A_strip": [
+        0.067,
+        0.067,
+        0.067,
+        0.067,
+        0.067,
+        0.067
+      ],
+      "Fx_left": 0.0,
+      "Fx_right": 0.0
+    },
+    {
+      "name": "Doubler",
+      "E": 10000000.0,
+      "t": 0.063,
+      "first_row": 1,
+      "last_row": 9,
+      "A_strip": [
+        0.059,
+        0.059,
+        0.059,
+        0.059,
+        0.059,
+        0.059,
+        0.059,
+        0.059
+      ],
+      "Fx_left": 0.0,
+      "Fx_right": 1000.0
+    }
+  ],
+  "fasteners": [
+    {
+      "row": 2,
+      "D": 0.188,
+      "Eb": 10300000.0,
+      "nu_b": 0.3,
+      "method": "Boeing69",
+      "connections": [
+        [
+          0,
+          1
+        ]
+      ]
+    },
+    {
+      "row": 3,
+      "D": 0.188,
+      "Eb": 10300000.0,
+      "nu_b": 0.3,
+      "method": "Boeing69",
+      "connections": [
+        [
+          0,
+          1
+        ]
+      ]
+    },
+    {
+      "row": 4,
+      "D": 0.188,
+      "Eb": 10300000.0,
+      "nu_b": 0.3,
+      "method": "Boeing69",
+      "connections": [
+        [
+          0,
+          1
+        ]
+      ]
+    },
+    {
+      "row": 5,
+      "D": 0.188,
+      "Eb": 10300000.0,
+      "nu_b": 0.3,
+      "method": "Boeing69",
+      "connections": [
+        [
+          0,
+          1
+        ]
+      ]
+    },
+    {
+      "row": 6,
+      "D": 0.188,
+      "Eb": 10300000.0,
+      "nu_b": 0.3,
+      "method": "Boeing69",
+      "connections": [
+        [
+          0,
+          1
+        ]
+      ]
+    },
+    {
+      "row": 7,
+      "D": 0.188,
+      "Eb": 10300000.0,
+      "nu_b": 0.3,
+      "method": "Boeing69",
+      "connections": [
+        [
+          0,
+          1
+        ]
+      ]
+    },
+    {
+      "row": 8,
+      "D": 0.188,
+      "Eb": 10300000.0,
+      "nu_b": 0.3,
+      "method": "Boeing69",
+      "connections": [
+        [
+          0,
+          1
+        ]
+      ]
+    }
+  ],
+  "supports": [
+    [
+      1,
+      0,
+      0.0
     ]
+  ]
+}
+"""
 
-    model = Joint1D(pitches=pitches, plates=plates, fasteners=fasteners)
-    solution = model.solve(supports=supports)
-    
-    tripler_reaction = next(r.reaction for r in solution.reactions if r.plate_name == "Tripler")
-    doubler_reaction = next(r.reaction for r in solution.reactions if r.plate_name == "Doubler")
-    
-    print(f"TR: {tripler_reaction:.2f} (Target: ~570)")
-    print(f"DR: {doubler_reaction:.2f} (Target: ~430)")
-    
-    # Check loads at fasteners if needed
-    for f in solution.fasteners:
-        print(f"Row {f.row} Force: {f.force:.2f}")
+data = json.loads(config_json)
 
-if __name__ == "__main__":
-    reproduce()
+# Reconstruct objects
+plates = [Plate(**p) for p in data["plates"]]
+fasteners = [FastenerRow(**f) for f in data["fasteners"]]
+pitches = data["pitches"]
+supports = [tuple(s) for s in data["supports"]]
+
+# Solve
+model = Joint1D(pitches, plates, fasteners)
+solution = model.solve(supports)
+
+# Compute Fatigue
+solution.compute_fatigue_factors(fasteners)
+
+# Check Node 1008 (Tripler, Row 8)
+print("--- Fatigue Results ---")
+for res in solution.fatigue_results:
+    if res.node_id == 1008 or res.row == 8 or res.node_id == 1002:
+        print(f"Node {res.node_id} (Row {res.row}, {res.plate_name}): SSF={res.ssf:.2f}, Ktb={res.ktb:.2f}, Theta={res.theta:.2f}, SigmaRef={res.sigma_ref:.2f}")
+        print(f"  Brg={res.bearing_load:.2f}, Byp={res.bypass_load:.2f}, TermBrg={res.term_bearing:.2f}, TermByp={res.term_bypass:.2f}")
+
+# Check Force Balance
+# Logic from classic_results_as_dicts or similar?
+# The user said "force balancing gives an error".
+# Let's check the reactions and applied forces.
+
+print("\n--- Force Balance ---")
+sum_forces = 0.0
+for p in plates:
+    sum_forces += p.Fx_left + p.Fx_right
+    
+sum_reactions = sum(r.reaction for r in solution.reactions)
+print(f"Sum Applied: {sum_forces}")
+print(f"Sum Reactions: {sum_reactions}")
+print(f"Balance: {sum_forces + sum_reactions}")
+

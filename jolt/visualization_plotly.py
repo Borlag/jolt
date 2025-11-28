@@ -93,36 +93,16 @@ def render_joint_diagram_plotly(
         # Iterate through segments to build the plot path
         # coords has len(segments) + 1 points
         for seg_idx in range(len(coords) - 1):
-            # Map local segment index to plate's A_strip
-            # coords starts at start_index (relative to pitches), which corresponds to plate.first_row - 1
-            # So seg_idx 0 in coords corresponds to plate.A_strip[start_index - (plate.first_row - 1)]
-            # Wait, start_index = max(plate.first_row - 1, 0).
-            # If plate.first_row = 1, start_index = 0.
-            # plate.A_strip[0] corresponds to segment between row 1 and 2.
-            # coords[0] is x at row 1. coords[1] is x at row 2.
-            # So segment seg_idx corresponds to plate.A_strip[start_index - (plate.first_row - 1) + seg_idx]
-            
             strip_idx = start_index - (plate.first_row - 1) + seg_idx
             if 0 <= strip_idx < len(plate.A_strip):
                 is_gap = plate.A_strip[strip_idx] <= 1e-9
             else:
-                is_gap = False # Should not happen if indices are correct
+                is_gap = False 
             
             if is_gap:
-                # If it's a gap, we don't draw this segment.
-                # If we were drawing, we need to break the line.
                 x_plot.append(None)
                 y_plot.append(None)
             else:
-                # If we are starting a new segment and the previous was a gap (or start),
-                # we need to ensure the start point is added.
-                # However, Plotly connects points.
-                # To draw segment from coords[seg_idx] to coords[seg_idx+1]:
-                # We add coords[seg_idx], then coords[seg_idx+1].
-                # But if we just append points, we get a continuous line.
-                # If we have [x0, x1, None, x2, x3], we get line x0-x1 and x2-x3.
-                
-                # Check if we need to add the start point of this segment
                 if not x_plot or x_plot[-1] is None:
                     x_plot.append(coords[seg_idx])
                     y_plot.append(y)
@@ -410,8 +390,6 @@ def render_joint_diagram_plotly(
     )
     
     # Secondary X-Axis (Top) - Rows aligned with Nodes
-    # User requested: "the row should go along the nodes"
-    # So we align Row 1 with n1, Row 2 with n2, etc.
     fig.update_layout(
         xaxis2=dict(
             overlaying="x",
@@ -443,7 +421,49 @@ def render_joint_diagram_plotly(
         showlegend=True,
         height=600,
         margin=dict(l=50, r=50, t=80, b=50),
-        dragmode="pan" # Allow panning by default
+        dragmode="pan" 
     )
+
+    # --- Critical Point Highlight ---
+    if solution.critical_node_id:
+        crit_node = next((n for n in solution.nodes if n.legacy_id == solution.critical_node_id), None)
+        if crit_node:
+            coord = node_coords.get((crit_node.plate_id, crit_node.local_node))
+            if coord:
+                x_c, y_c = coord
+                
+                # Find SSF value for annotation
+                ssf_val = 0.0
+                if solution.fatigue_results:
+                     f_res = next((r for r in solution.fatigue_results if r.node_id == solution.critical_node_id), None)
+                     if f_res:
+                         ssf_val = f_res.ssf
+
+                # Add Red Halo / Marker with Legend
+                fig.add_trace(go.Scatter(
+                    x=[x_c],
+                    y=[y_c],
+                    mode="markers",
+                    marker=dict(size=25, color="rgba(255, 0, 0, 0.3)", line=dict(width=3, color="red"), symbol="circle-open"),
+                    name="Critical Node", # Legend entry
+                    hoverinfo="text",
+                    hovertext=f"Critical Node: {solution.critical_node_id}<br>SSF: {ssf_val:.2f}"
+                ))
+                
+                fig.add_annotation(
+                    x=x_c,
+                    y=y_c,
+                    text=f"CRIT (SSF={ssf_val:.2f})",
+                    showarrow=True,
+                    arrowhead=2,
+                    arrowsize=1,
+                    arrowwidth=2,
+                    arrowcolor="red",
+                    ax=0,
+                    ay=-50,
+                    bgcolor="rgba(255, 255, 255, 0.9)",
+                    bordercolor="red",
+                    font=dict(color="red", size=font_size + 1, weight="bold")
+                )
 
     return fig
