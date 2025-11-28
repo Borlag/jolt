@@ -1053,7 +1053,7 @@ def render_solution_tables(solution: JointSolution):
                         return ['background-color: #ffcccc'] * len(row)
                     return [''] * len(row)
 
-                cols = ["node_id", "plate_name", "ktg", "ktn", "ktb", "theta", "ssf", "bearing_load", "bypass_load", "sigma_ref"]
+                cols = ["node_id", "plate_name", "ktg", "ktn", "ktb", "theta", "ssf", "bearing_load", "bypass_load", "sigma_ref", "peak_stress"]
                 cols = [c for c in cols if c in df_fatigue.columns]
                 
                 st.dataframe(
@@ -1066,6 +1066,7 @@ def render_solution_tables(solution: JointSolution):
                         "bearing_load": "{:.1f}",
                         "bypass_load": "{:.1f}",
                         "sigma_ref": "{:.1f}",
+                        "peak_stress": "{:.1f}",
                     }).apply(highlight_crit, axis=1),
                     width="stretch",
                     hide_index=True,

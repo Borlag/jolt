@@ -32,6 +32,7 @@ class FatigueResult:
     sigma_ref: float
     term_bearing: float
     term_bypass: float
+    peak_stress: float = 0.0
 
     def as_dict(self) -> Dict[str, float]:
         return asdict(self)
@@ -184,7 +185,8 @@ class JointSolution:
         Populates self.fatigue_results and sets self.critical_node_id.
         """
         self.fatigue_results = []
-        max_ssf = -1.0
+        # Change 1: Track max_peak_stress instead of max_ssf
+        max_peak_stress = -1.0
         crit_node = None
         
         fastener_map = {f.row: f for f in fasteners}
@@ -256,13 +258,18 @@ class JointSolution:
                 bypass_load=P_bypass,
                 sigma_ref=res["sigma_ref"],
                 term_bearing=res["term_bearing"],
-                term_bypass=res["term_bypass"]
+                term_bypass=res["term_bypass"],
+                peak_stress=res["ssf"] * res["sigma_ref"]
             )
             
             self.fatigue_results.append(f_res)
             
-            if f_res.ssf > max_ssf:
-                max_ssf = f_res.ssf
+            # Change 2: Calculate Peak Stress for comparison
+            # Handle edge case where sigma_ref might be zero to avoid errors
+            current_peak_stress = f_res.peak_stress
+            
+            if current_peak_stress > max_peak_stress:
+                max_peak_stress = current_peak_stress
                 crit_node = node.legacy_id
 
         self.critical_node_id = crit_node

@@ -432,12 +432,14 @@ def render_joint_diagram_plotly(
             if coord:
                 x_c, y_c = coord
                 
-                # Find SSF value for annotation
+                # Find SSF and Peak Stress value for annotation
                 ssf_val = 0.0
+                peak_val = 0.0
                 if solution.fatigue_results:
                      f_res = next((r for r in solution.fatigue_results if r.node_id == solution.critical_node_id), None)
                      if f_res:
                          ssf_val = f_res.ssf
+                         peak_val = getattr(f_res, "peak_stress", 0.0)
 
                 # Add Red Halo / Marker with Legend
                 fig.add_trace(go.Scatter(
@@ -447,13 +449,13 @@ def render_joint_diagram_plotly(
                     marker=dict(size=25, color="rgba(255, 0, 0, 0.3)", line=dict(width=3, color="red"), symbol="circle-open"),
                     name="Critical Node", # Legend entry
                     hoverinfo="text",
-                    hovertext=f"Critical Node: {solution.critical_node_id}<br>SSF: {ssf_val:.2f}"
+                    hovertext=f"Critical Node: {solution.critical_node_id}<br>Peak Stress: {peak_val:.0f} psi<br>SSF: {ssf_val:.2f}"
                 ))
                 
                 fig.add_annotation(
                     x=x_c,
                     y=y_c,
-                    text=f"CRIT (SSF={ssf_val:.2f})",
+                    text=f"CRIT (Peak={peak_val:.0f})",
                     showarrow=True,
                     arrowhead=2,
                     arrowsize=1,
