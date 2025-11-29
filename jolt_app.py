@@ -54,8 +54,8 @@ if "solution" in st.session_state:
         with col_ctrl:
             font_size = st.slider("Annotation Font Size", 8, 24, 10, key="viz_font_size")
         
-        tabs = st.tabs(["Scheme", "Displacements", "Loads"])
-        modes = ["scheme", "displacements", "loads"]
+        tabs = st.tabs(["Scheme", "Displacements", "Loads", "Fatigue"])
+        modes = ["scheme", "displacements", "loads", "fatigue"]
         for tab, mode in zip(tabs, modes):
             with tab:
                 fig = render_joint_diagram_plotly(

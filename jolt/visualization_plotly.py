@@ -56,6 +56,9 @@ def render_joint_diagram_plotly(
 
     fig = go.Figure()
 
+    # Opacity for base geometry in fatigue mode
+    base_opacity = 0.3 if mode == "fatigue" else 1.0
+
     # --- Background Grid (Vertical Lines) ---
     for xi in global_nodes:
         fig.add_shape(
@@ -116,6 +119,7 @@ def render_joint_diagram_plotly(
             y=y_plot,
             mode="lines",
             line=dict(width=4),
+            opacity=base_opacity,
             name=f"{plate.name} ({plate.material_name})" if plate.material_name else plate.name,
             legendgroup=plate.name,
             connectgaps=False 
@@ -129,6 +133,7 @@ def render_joint_diagram_plotly(
                 y=[y],
                 mode="markers",
                 marker=dict(size=10, color="white", line=dict(width=2, color="black")),
+                opacity=base_opacity,
                 showlegend=False,
                 hoverinfo="text",
                 text=f"{plate.name} n{plate.first_row + local_node}"
@@ -226,6 +231,7 @@ def render_joint_diagram_plotly(
                 mode="lines+markers",
                 line=dict(color="purple", width=2, dash="dash"),
                 marker=dict(size=6, color="purple"),
+                opacity=base_opacity,
                 showlegend=False,
                 hoverinfo="skip"
             ))
@@ -379,6 +385,75 @@ def render_joint_diagram_plotly(
                     xanchor="left"
                 )
 
+    # --- Mode: Fatigue ---
+    if mode == "fatigue":
+        # Iterate through critical points (already sorted by Rank)
+        critical_points = getattr(solution, "critical_points", [])
+        for i, cp in enumerate(critical_points):
+            node_id = cp["node_id"]
+            rank = cp.get("rank", i + 1)
+            fsi = cp.get("fsi", 0.0)
+            peak = cp.get("peak_stress", 0.0)
+            
+            # Find coordinates
+            # We need to find the node object to get plate_id and local_node
+            node_obj = next((n for n in solution.nodes if n.legacy_id == node_id), None)
+            if not node_obj:
+                continue
+                
+            coord = node_coords.get((node_obj.plate_id, node_obj.local_node))
+            if not coord:
+                continue
+                
+            x_c, y_c = coord
+            
+            # Determine Color and Size based on Rank
+            if rank == 1:
+                color = "red"
+                size = 25
+                symbol = "circle-open"
+                line_width = 3
+            else:
+                color = "orange"
+                size = 20
+                symbol = "circle-open"
+                line_width = 2
+                
+            # Marker
+            fig.add_trace(go.Scatter(
+                x=[x_c],
+                y=[y_c],
+                mode="markers",
+                marker=dict(size=size, color=f"rgba(255, 0, 0, 0.1)", line=dict(width=line_width, color=color), symbol=symbol),
+                name=f"Rank {rank}",
+                showlegend=(i < 5), # Only show first few in legend to avoid clutter
+                hoverinfo="text",
+                hovertext=f"Rank: {rank}<br>Node: {node_id}<br>FSI: {fsi:.2f}<br>Peak: {peak:.0f}"
+            ))
+            
+            # Annotation
+            # Stagger annotations to avoid overlap if possible, or just place them
+            # Alternating top/bottom might help?
+            ay_offset = -40 if i % 2 == 0 else 40
+            
+            label_text = f"CRIT {rank}<br>FSI: {fsi:.2f}"
+            
+            fig.add_annotation(
+                x=x_c,
+                y=y_c,
+                text=label_text,
+                showarrow=True,
+                arrowhead=2,
+                arrowsize=1,
+                arrowwidth=1.5,
+                arrowcolor=color,
+                ax=0,
+                ay=ay_offset,
+                bgcolor="rgba(255, 255, 255, 0.8)",
+                bordercolor=color,
+                font=dict(color=color, size=font_size, weight="bold")
+            )
+
     # --- Layout Configuration ---
     
     # Primary X-Axis (Bottom) - Global Nodes (n1, n2...)
@@ -414,6 +489,7 @@ def render_joint_diagram_plotly(
         "scheme": "Scheme overview",
         "displacements": "Nodal displacements",
         "loads": "Load distribution",
+        "fatigue": "Fatigue Criticality (FSI)",
     }
     
     fig.update_layout(
@@ -425,8 +501,9 @@ def render_joint_diagram_plotly(
         dragmode="pan" 
     )
 
-    # --- Critical Point Highlight ---
-    if solution.critical_node_id:
+    # --- Critical Point Highlight (Legacy / Non-Fatigue Mode) ---
+    # User requested to remove this from Scheme and Displacements
+    if solution.critical_node_id and mode not in ["fatigue", "scheme", "displacements"]:
         crit_node = next((n for n in solution.nodes if n.legacy_id == solution.critical_node_id), None)
         if crit_node:
             coord = node_coords.get((crit_node.plate_id, crit_node.local_node))

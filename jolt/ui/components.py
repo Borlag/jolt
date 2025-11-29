@@ -327,6 +327,8 @@ def _render_plates_section(units: Dict[str, str]):
             plate.thicknesses = None
         if not hasattr(plate, "material_name"):
             plate.material_name = None
+        if not hasattr(plate, "fatigue_strength"):
+            plate.fatigue_strength = None
             
         with st.expander(f"Layer {idx}: {plate.name}", expanded=False):
             c1, c2, c3 = st.columns(3)
@@ -340,8 +342,22 @@ def _render_plates_section(units: Dict[str, str]):
             plate.E = c2.number_input(f"E [{units['stress']}]", e_min, e_max, plate.E, key=f"pl_E_{idx}_v{st.session_state.get('_widget_version', 0)}", step=e_step, format="%.0f")
             plate.t = c3.number_input(f"t [{units['length']}]", 0.001, 1000.0, plate.t, key=f"pl_t_{idx}_v{st.session_state.get('_widget_version', 0)}", step=0.001, format="%.3f")
             
-            # Material Name Input
-            plate.material_name = st.text_input("Material Name", plate.material_name or "", key=f"pl_mat_{idx}_v{st.session_state.get('_widget_version', 0)}")
+            # Row 2: Material Name and Fatigue Strength
+            m1, m2 = st.columns([2, 1])
+            plate.material_name = m1.text_input("Material Name", plate.material_name or "", key=f"pl_mat_{idx}_v{st.session_state.get('_widget_version', 0)}")
+            
+            fs_val = plate.fatigue_strength if plate.fatigue_strength is not None else 0.0
+            new_fs = m2.number_input(
+                f"Fatigue Strength (f_max) [{units['stress']}]", 
+                0.0, 
+                e_max, 
+                fs_val, 
+                key=f"pl_fs_{idx}_v{st.session_state.get('_widget_version', 0)}",
+                step=e_step/10.0,
+                format="%.1f",
+                help="Material strength from S-N curve for target life (e.g., 10^5 cycles)."
+            )
+            plate.fatigue_strength = new_fs if new_fs > 0 else None
 
             d1, d2, _ = st.columns(3)
             max_first_allowed = max(1, n_rows - 1) if n_rows > 1 else 1
@@ -1151,28 +1167,57 @@ def render_solution_tables(solution: JointSolution, units: Dict[str, str]):
                 }
                 df_fatigue = df_fatigue.rename(columns=rename_map)
 
+                # Merge Ranking Info
+                # Create a map from node_id to ranking info (only for critical nodes)
+                critical_points = getattr(solution, "critical_points", [])
+                rank_map = {cp["node_id"]: cp for cp in critical_points}
+                
+                # Add columns
+                # Rank comes from the critical points list
+                df_fatigue["Rank"] = df_fatigue["node_id"].map(lambda x: rank_map.get(x, {}).get("rank", None))
+                
+                # FSI and f_max come directly from the FatigueResult object now (available for all nodes)
+                # Note: df_fatigue already has 'fsi' and 'f_max' columns from the object dict
+                
+                # Rename FSI/f_max columns to include units if needed, or just ensure they are present
+                # The as_dict() method should have included them.
+                if "f_max" in df_fatigue.columns:
+                     df_fatigue = df_fatigue.rename(columns={"f_max": f"f_max [{units['stress']}]"})
+                
                 # Highlight Critical Node
                 def highlight_crit(row):
                     if row["node_id"] == solution.critical_node_id:
                         return ['background-color: #ffcccc'] * len(row)
                     return [''] * len(row)
 
-                cols = ["node_id", "plate_name", "ktg", "ktn", "ktb", "theta", "ssf", f"bearing_load [{units['force']}]", f"bypass_load [{units['force']}]", f"sigma_ref [{units['stress']}]", f"peak_stress [{units['stress']}]"]
+                cols = ["Rank", "fsi", "node_id", "plate_name", "ktg", "ktn", "ktb", "theta", "ssf", f"bearing_load [{units['force']}]", f"bypass_load [{units['force']}]", f"sigma_ref [{units['stress']}]", f"peak_stress [{units['stress']}]", f"f_max [{units['stress']}]"]
                 cols = [c for c in cols if c in df_fatigue.columns]
                 
+                # Sort by Rank if available, else by node_id
+                if "Rank" in df_fatigue.columns:
+                    df_fatigue = df_fatigue.sort_values(by=["Rank", "node_id"], na_position='last')
+                    # Convert to string to avoid PyArrow mixed type issues (float vs empty string)
+                    df_fatigue["Rank"] = df_fatigue["Rank"].apply(lambda x: str(int(x)) if pd.notnull(x) and x != "" else "")
+
+                # Check for missing FSI columns (stale state)
+                if "fsi" not in df_fatigue.columns:
+                    st.warning("⚠️ New fatigue columns (FSI, f_max) are missing. Please click 'Solve' to update the results.")
+
                 st.dataframe(
                     df_fatigue[cols].style.format({
+                        "Rank": "{}", 
+                        "fsi": "{:.2f}",
                         "ktg": "{:.2f}",
                         "ktn": "{:.2f}",
                         "ktb": "{:.2f}",
                         "theta": "{:.2f}",
                         "ssf": "{:.2f}",
-                        "ssf": "{:.2f}",
                         f"bearing_load [{units['force']}]": "{:.1f}",
                         f"bypass_load [{units['force']}]": "{:.1f}",
                         f"sigma_ref [{units['stress']}]": "{:.1f}",
                         f"peak_stress [{units['stress']}]": "{:.1f}",
-                    }).apply(highlight_crit, axis=1),
+                        f"f_max [{units['stress']}]": "{:.1f}",
+                    }, na_rep="-").apply(highlight_crit, axis=1),
                     width="stretch",
                     hide_index=True,
                 )

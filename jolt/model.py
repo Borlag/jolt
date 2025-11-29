@@ -33,6 +33,8 @@ class FatigueResult:
     term_bearing: float
     term_bypass: float
     peak_stress: float = 0.0
+    fsi: float = 0.0
+    f_max: Optional[float] = None
 
     def as_dict(self) -> Dict[str, float]:
         return asdict(self)
@@ -54,6 +56,7 @@ class Plate:
     material_name: Optional[str] = None
     Fx_left: float = 0.0
     Fx_right: float = 0.0
+    fatigue_strength: Optional[float] = None
 
 
     def segment_count(self) -> int:
@@ -177,21 +180,24 @@ class JointSolution:
     plates: List[Plate] = field(default_factory=list)
     applied_forces: List[Dict[str, Any]] = field(default_factory=list)
     fatigue_results: List[FatigueResult] = field(default_factory=list)
+    critical_points: List[Dict[str, Any]] = field(default_factory=list)
     critical_node_id: Optional[int] = None
 
     def compute_fatigue_factors(self, fasteners: List[FastenerRow]):
         """
         Compute SSF for all nodes at fastener locations.
-        Populates self.fatigue_results and sets self.critical_node_id.
+        Populates self.fatigue_results and self.critical_points.
         """
         self.fatigue_results = []
-        # Change 1: Track max_peak_stress instead of max_ssf
-        max_peak_stress = -1.0
-        crit_node = None
+        self.critical_points = []
         
         fastener_map = {f.row: f for f in fasteners}
         bb_map = {(bb.plate_name, bb.row): bb for bb in self.bearing_bypass}
+        plate_map = {p.name: p for p in self.plates}
         
+        # Temporary storage for ranking: plate_name -> list of results
+        plate_results: Dict[str, List[Dict[str, Any]]] = {}
+
         for node in self.nodes:
             if node.row not in fastener_map:
                 continue
@@ -227,9 +233,6 @@ class JointSolution:
                     is_cs = False
             
             # Calculate SSF
-            # Note: calculate_ssf computes sigma_ref internally as (load_transfer + load_bypass) / area_gross
-            # We pass P_bearing as load_transfer and P_bypass as load_bypass.
-            # This matches the user's definition: Incoming Load = Bearing + Bypass.
             res = fatigue.calculate_ssf(
                 load_transfer=P_bearing,
                 load_bypass=P_bypass,
@@ -245,6 +248,17 @@ class JointSolution:
                 cs_affects_bypass=f_def.cs_affects_bypass
             )
             
+            peak_stress = res["ssf"] * res["sigma_ref"]
+            
+            # --- FSI Logic ---
+            plate = plate_map.get(node.plate_name)
+            f_max = plate.fatigue_strength if plate and plate.fatigue_strength else None
+            
+            if f_max and f_max > 0:
+                fsi = peak_stress / f_max
+            else:
+                fsi = peak_stress # Fallback if no strength defined
+
             f_res = FatigueResult(
                 node_id=node.legacy_id,
                 row=node.row,
@@ -259,20 +273,50 @@ class JointSolution:
                 sigma_ref=res["sigma_ref"],
                 term_bearing=res["term_bearing"],
                 term_bypass=res["term_bypass"],
-                peak_stress=res["ssf"] * res["sigma_ref"]
+                peak_stress=peak_stress,
+                fsi=fsi,
+                f_max=f_max
             )
             
             self.fatigue_results.append(f_res)
             
-            # Change 2: Calculate Peak Stress for comparison
-            # Handle edge case where sigma_ref might be zero to avoid errors
-            current_peak_stress = f_res.peak_stress
+            entry = {
+                "node_id": node.legacy_id,
+                "plate_name": node.plate_name,
+                "row": node.row,
+                "peak_stress": peak_stress,
+                "ssf": res["ssf"],
+                "f_max": f_max,
+                "fsi": fsi,
+                "x": node.x, 
+                "y": 0.0 
+            }
             
-            if current_peak_stress > max_peak_stress:
-                max_peak_stress = current_peak_stress
-                crit_node = node.legacy_id
+            if node.plate_name not in plate_results:
+                plate_results[node.plate_name] = []
+            plate_results[node.plate_name].append(entry)
 
-        self.critical_node_id = crit_node
+        # Ranking Logic: Find max FSI per plate, then rank plates
+        ranked_candidates = []
+        
+        for plate_name, results in plate_results.items():
+            # Find the worst node for this plate
+            worst_node = max(results, key=lambda x: x["fsi"])
+            ranked_candidates.append(worst_node)
+            
+        # Sort all plate maxima by FSI descending
+        ranked_candidates.sort(key=lambda x: x["fsi"], reverse=True)
+        
+        # Assign Ranks and store
+        for i, cand in enumerate(ranked_candidates):
+            cand["rank"] = i + 1
+            self.critical_points.append(cand)
+            
+        # Set legacy critical_node_id to the top rank
+        if self.critical_points:
+            self.critical_node_id = self.critical_points[0]["node_id"]
+        else:
+            self.critical_node_id = None
 
     def fatigue_results_as_dicts(self) -> List[Dict[str, float]]:
         return [res.as_dict() for res in self.fatigue_results]

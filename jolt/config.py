@@ -63,6 +63,7 @@ def plate_to_dict(plate: Plate) -> Dict[str, Any]:
         "A_strip": list(plate.A_strip),
         "Fx_left": plate.Fx_left,
         "Fx_right": plate.Fx_right,
+        "fatigue_strength": getattr(plate, "fatigue_strength", None),
     }
     return data
 
@@ -86,7 +87,8 @@ def fastener_to_dict(fastener: FastenerRow) -> Dict[str, Any]:
 
 def plate_from_dict(data: Dict[str, Any]) -> Plate:
     """Create a :class:`Plate` instance from JSON data."""
-
+    
+    fs = data.get("fatigue_strength")
     return Plate(
         name=str(data.get("name", "Plate")),
         E=float(data.get("E", 0.0)),
@@ -96,6 +98,7 @@ def plate_from_dict(data: Dict[str, Any]) -> Plate:
         A_strip=_to_float_list(data.get("A_strip", [])),
         Fx_left=float(data.get("Fx_left", 0.0)),
         Fx_right=float(data.get("Fx_right", 0.0)),
+        fatigue_strength=float(fs) if fs is not None else None
     )
 
 

@@ -152,6 +152,12 @@ def convert_session_state(target_system: str) -> None:
         new_Fx_left = UnitConverter.convert_force(p.Fx_left, to_sys)
         new_Fx_right = UnitConverter.convert_force(p.Fx_right, to_sys)
         
+        # fatigue_strength (Stress)
+        new_fs = None
+        current_fs = getattr(p, "fatigue_strength", None)
+        if current_fs is not None:
+            new_fs = UnitConverter.convert_stress(current_fs, to_sys)
+        
         new_plates.append(replace(
             p, 
             E=new_E, 
@@ -160,7 +166,8 @@ def convert_session_state(target_system: str) -> None:
             widths=new_widths, 
             thicknesses=new_thicknesses,
             Fx_left=new_Fx_left,
-            Fx_right=new_Fx_right
+            Fx_right=new_Fx_right,
+            fatigue_strength=new_fs
         ))
     st.session_state.plates = new_plates
     
