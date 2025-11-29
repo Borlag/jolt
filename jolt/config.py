@@ -159,6 +159,7 @@ class JointConfiguration:
     label: str = ""
     unloading: str = ""
     description: str = ""
+    units: str = "Imperial"
 
     def build_model(self) -> Joint1D:
         """Create a :class:`Joint1D` model for this configuration."""
@@ -172,6 +173,7 @@ class JointConfiguration:
             "label": self.label,
             "unloading": self.unloading,
             "description": self.description,
+            "units": self.units,
             "pitches": list(self.pitches),
             "plates": [plate_to_dict(plate) for plate in self.plates],
             "fasteners": [fastener_to_dict(fastener) for fastener in self.fasteners],
@@ -198,6 +200,7 @@ class JointConfiguration:
         label = str(data.get("label", ""))
         unloading = str(data.get("unloading", ""))
         description = str(data.get("description", ""))
+        units = str(data.get("units", "Imperial"))
         return cls(
             pitches=pitches,
             plates=plates,
@@ -207,6 +210,7 @@ class JointConfiguration:
             label=label,
             unloading=unloading,
             description=description,
+            units=units,
         )
 
     @classmethod

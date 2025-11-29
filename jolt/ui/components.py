@@ -8,16 +8,37 @@ import hashlib
 import math
 
 from jolt import Plate, FastenerRow, JointSolution, JointConfiguration
+from jolt.units import UnitSystem, UnitConverter
 from .utils import available_fastener_pairs
-from .state import apply_configuration, clear_configuration_widget_state, serialize_configuration
+from .state import apply_configuration, clear_configuration_widget_state, serialize_configuration, convert_session_state
 
 _UPLOAD_DIGEST_KEY = "_cfg_upload_digest"
 
-def render_sidebar() -> Tuple[List[float], List[Plate], List[FastenerRow], List[Tuple[int, int, float]], Dict[int, float]]:
+def render_sidebar() -> Tuple[List[float], List[Plate], List[FastenerRow], List[Tuple[int, int, float]], Dict[int, float], Dict[str, str]]:
     with st.sidebar:
         st.header("Configuration")
         
-        # Mode Selection
+        # Unit System Selection
+        current_units = st.session_state.get("unit_system", UnitSystem.IMPERIAL)
+        
+        # Use a callback to handle conversion immediately upon change
+        def on_unit_change():
+            new_unit = st.session_state._unit_selector
+            convert_session_state(new_unit)
+
+        unit_choice = st.radio(
+            "Unit System",
+            [UnitSystem.IMPERIAL, UnitSystem.SI],
+            index=0 if current_units == UnitSystem.IMPERIAL else 1,
+            key="_unit_selector",
+            horizontal=True,
+            on_change=on_unit_change,
+            format_func=lambda x: "Imperial" if x == UnitSystem.IMPERIAL else "SI"
+        )
+        
+        # Get labels for current system
+        units = UnitConverter.get_labels(current_units)
+
         # Mode Selection
         # Check if we need to force a specific mode (e.g. after loading)
         forced_mode = st.session_state.pop("_force_input_mode", None)
@@ -34,7 +55,7 @@ def render_sidebar() -> Tuple[List[float], List[Plate], List[FastenerRow], List[
 
         # --- Standard / Refined Mode ---
         if input_mode in ["Standard", "Refined Row"]:
-            _render_geometry_section()
+            _render_geometry_section(units)
             pitches = st.session_state.pitches
             
             extra_nodes = []
@@ -49,10 +70,10 @@ def render_sidebar() -> Tuple[List[float], List[Plate], List[FastenerRow], List[
                             st.error("Invalid coordinates")
                 st.session_state.extra_nodes = extra_nodes
 
-            _render_plates_section()
+            _render_plates_section(units)
             plates = st.session_state.plates
             
-            _render_fasteners_section()
+            _render_fasteners_section(units)
             fasteners = st.session_state.fasteners
             
             if input_mode == "Refined Row" and extra_nodes:
@@ -61,11 +82,11 @@ def render_sidebar() -> Tuple[List[float], List[Plate], List[FastenerRow], List[
 
         # --- Node-based Mode ---
         else:
-            pitches, plates, fasteners = _render_node_based_inputs()
+            pitches, plates, fasteners = _render_node_based_inputs(units)
 
         # Supports
         # We pass the *current* pitches and plates to supports section so it can validate indices
-        supports = _render_supports_section(pitches, plates)
+        supports = _render_supports_section(pitches, plates, units)
         
         # Point forces
         point_forces = {}
@@ -73,10 +94,10 @@ def render_sidebar() -> Tuple[List[float], List[Plate], List[FastenerRow], List[
         
         _render_saved_configs_section()
 
-    return pitches, plates, fasteners, supports, point_forces
+    return pitches, plates, fasteners, supports, point_forces, units
 
 
-def _render_node_based_inputs() -> Tuple[List[float], List[Plate], List[FastenerRow]]:
+def _render_node_based_inputs(units: Dict[str, str]) -> Tuple[List[float], List[Plate], List[FastenerRow]]:
     st.subheader("Nodes")
     # Initialize or migrate to DataFrame
     if "node_table" not in st.session_state:
@@ -93,7 +114,7 @@ def _render_node_based_inputs() -> Tuple[List[float], List[Plate], List[Fastener
         num_rows="dynamic",
         column_config={
             "id": st.column_config.NumberColumn("Node ID", step=1, required=True),
-            "x": st.column_config.NumberColumn("X [in]", required=True, format="%.3f"),
+            "x": st.column_config.NumberColumn(f"X [{units['length']}]", required=True, format="%.3f"),
         },
         key="node_editor",
         hide_index=True,
@@ -121,9 +142,9 @@ def _render_node_based_inputs() -> Tuple[List[float], List[Plate], List[Fastener
             "layer": st.column_config.TextColumn("Layer Name", required=True),
             "start": st.column_config.NumberColumn("Start Node", step=1, required=True),
             "end": st.column_config.NumberColumn("End Node", step=1, required=True),
-            "E": st.column_config.NumberColumn("Modulus [psi]", default=1e7),
-            "t": st.column_config.NumberColumn("Thickness [in]", default=0.1),
-            "w": st.column_config.NumberColumn("Width [in]", default=1.0),
+            "E": st.column_config.NumberColumn(f"Modulus [{units['stress']}]", default=1e7),
+            "t": st.column_config.NumberColumn(f"Thickness [{units['length']}]", default=0.1),
+            "w": st.column_config.NumberColumn(f"Width [{units['length']}]", default=1.0),
         },
         key="element_editor",
         hide_index=True,
@@ -177,9 +198,9 @@ def _render_node_based_inputs() -> Tuple[List[float], List[Plate], List[Fastener
         num_rows="dynamic",
         column_config={
             "node": st.column_config.NumberColumn("Node ID", step=1, required=True),
-            "d": st.column_config.NumberColumn("Diameter [in]", default=0.19),
+            "d": st.column_config.NumberColumn(f"Diameter [{units['length']}]", default=0.19),
             "layers": st.column_config.TextColumn("Layers (comma-sep)", help="e.g. Skin, Doubler"),
-            "E": st.column_config.NumberColumn("Modulus [psi]", default=1e7),
+            "E": st.column_config.NumberColumn(f"Modulus [{units['stress']}]", default=1e7),
             "v": st.column_config.NumberColumn("Poisson Ratio", default=0.3),
             "method": st.column_config.SelectboxColumn(
                 "Method",
@@ -244,7 +265,7 @@ def _render_node_based_inputs() -> Tuple[List[float], List[Plate], List[Fastener
     return process_node_based(nodes_dict, elements, fasteners_in)
 
 
-def _render_geometry_section():
+def _render_geometry_section(units: Dict[str, str]):
     default_rows = len(st.session_state.pitches)
     n_rows = int(
         st.number_input(
@@ -287,16 +308,16 @@ def _render_geometry_section():
     with cols[0]:
         same_pitch = st.checkbox("All pitches equal", value=True)
     if same_pitch:
-        value = st.number_input("Pitch value [in]", 0.01, 100.0, st.session_state.pitches[0], step=0.001, format="%.3f")
+        value = st.number_input(f"Pitch value [{units['length']}]", 0.001, 1000.0, st.session_state.pitches[0], step=0.001, format="%.3f")
         st.session_state.pitches = [float(value)] * n_rows
     else:
-        st.write("Pitches [in]")
+        st.write(f"Pitches [{units['length']}]")
         st.session_state.pitches = [
             st.number_input(f"p[{i+1}]", 0.001, 100.0, st.session_state.pitches[i], key=f"pitch_{i}_v{st.session_state.get('_widget_version', 0)}", step=0.001, format="%.3f")
             for i in range(n_rows)
         ]
 
-def _render_plates_section():
+def _render_plates_section(units: Dict[str, str]):
     n_rows = len(st.session_state.pitches)
     for idx, plate in enumerate(st.session_state.plates):
         # Ensure backward compatibility for session state objects
@@ -310,8 +331,14 @@ def _render_plates_section():
         with st.expander(f"Layer {idx}: {plate.name}", expanded=False):
             c1, c2, c3 = st.columns(3)
             plate.name = c1.text_input("Name", plate.name, key=f"pl_name_{idx}_v{st.session_state.get('_widget_version', 0)}")
-            plate.E = c2.number_input("E [psi]", 1e5, 5e8, plate.E, key=f"pl_E_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1e5, format="%.0f")
-            plate.t = c3.number_input("t [in]", 0.001, 2.0, plate.t, key=f"pl_t_{idx}_v{st.session_state.get('_widget_version', 0)}", step=0.001, format="%.3f")
+            # Dynamic ranges based on unit system
+            is_si = units["stress"] == "MPa"
+            e_min = 1.0 if is_si else 1e4
+            e_max = 1e7 if is_si else 1e9
+            e_step = 1000.0 if is_si else 1e5
+            
+            plate.E = c2.number_input(f"E [{units['stress']}]", e_min, e_max, plate.E, key=f"pl_E_{idx}_v{st.session_state.get('_widget_version', 0)}", step=e_step, format="%.0f")
+            plate.t = c3.number_input(f"t [{units['length']}]", 0.001, 1000.0, plate.t, key=f"pl_t_{idx}_v{st.session_state.get('_widget_version', 0)}", step=0.001, format="%.3f")
             
             # Material Name Input
             plate.material_name = st.text_input("Material Name", plate.material_name or "", key=f"pl_mat_{idx}_v{st.session_state.get('_widget_version', 0)}")
@@ -368,8 +395,8 @@ def _render_plates_section():
                     
                     if same_dims:
                         c_w, c_t = st.columns(2)
-                        w_val = c_w.number_input("Width [in]", 0.001, 100.0, plate.widths[0], key=f"pl_w_all_{idx}", step=0.1, format="%.3f")
-                        t_val = c_t.number_input("Thickness [in]", 0.001, 2.0, plate.thicknesses[0], key=f"pl_t_all_{idx}", step=0.001, format="%.3f")
+                        w_val = c_w.number_input(f"Width [{units['length']}]", 0.001, 5000.0, plate.widths[0], key=f"pl_w_all_{idx}", step=0.1, format="%.3f")
+                        t_val = c_t.number_input(f"Thickness [{units['length']}]", 0.001, 1000.0, plate.thicknesses[0], key=f"pl_t_all_{idx}", step=0.001, format="%.3f")
                         plate.widths = [w_val] * segments
                         plate.thicknesses = [t_val] * segments
                         # Update Area immediately for visual feedback or consistency
@@ -378,8 +405,8 @@ def _render_plates_section():
                         st.write("Segment Dimensions:")
                         for seg in range(segments):
                             c_w, c_t = st.columns(2)
-                            w_val = c_w.number_input(f"w[{seg+1}]", 0.001, 100.0, plate.widths[seg], key=f"pl_w_{idx}_{seg}", step=0.1, format="%.3f")
-                            t_val = c_t.number_input(f"t[{seg+1}]", 0.001, 2.0, plate.thicknesses[seg], key=f"pl_t_{idx}_{seg}", step=0.001, format="%.3f")
+                            w_val = c_w.number_input(f"w[{seg+1}]", 0.001, 5000.0, plate.widths[seg], key=f"pl_w_{idx}_{seg}", step=0.1, format="%.3f")
+                            t_val = c_t.number_input(f"t[{seg+1}]", 0.001, 1000.0, plate.thicknesses[seg], key=f"pl_t_{idx}_{seg}", step=0.001, format="%.3f")
                             plate.widths[seg] = w_val
                             plate.thicknesses[seg] = t_val
                             plate.A_strip[seg] = w_val * t_val
@@ -388,9 +415,9 @@ def _render_plates_section():
                     if same_area:
                         default_area = plate.A_strip[0] if plate.A_strip else 0.05
                         area_val = st.number_input(
-                            "Bypass area per segment [in²]",
+                            f"Bypass area per segment [{units['area']}]",
                             1e-5,
-                            10.0,
+                            10000.0,
                             default_area,
                             key=f"pl_A_all_{idx}_v{st.session_state.get('_widget_version', 0)}",
                             step=0.001,
@@ -413,9 +440,9 @@ def _render_plates_section():
                                     if val_to_show <= 1e-9:
                                         val_to_show = 0.05
                                     plate.A_strip[seg] = st.number_input(
-                                        f"A[{seg+1}] [in²]",
+                                        f"A[{seg+1}] [{units['area']}]",
                                         1e-5,
-                                        10.0,
+                                        10000.0,
                                         val_to_show,
                                         key=f"pl_A_{idx}_{seg}_v{st.session_state.get('_widget_version', 0)}",
                                         step=0.001,
@@ -423,10 +450,10 @@ def _render_plates_section():
                                     )
             e1, e2 = st.columns(2)
             plate.Fx_left = e1.number_input(
-                "End load LEFT [+→] [lb]", -1e6, 1e6, plate.Fx_left, key=f"pl_Fl_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1.0, format="%.1f"
+                f"End load LEFT [+→] [{units['force']}]", -1e9, 1e9, plate.Fx_left, key=f"pl_Fl_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1.0, format="%.1f"
             )
             plate.Fx_right = e2.number_input(
-                "End load RIGHT [+→] [lb]", -1e6, 1e6, plate.Fx_right, key=f"pl_Fr_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1.0, format="%.1f"
+                f"End load RIGHT [+→] [{units['force']}]", -1e9, 1e9, plate.Fx_right, key=f"pl_Fr_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1.0, format="%.1f"
             )
     cadd, cex = st.columns([1, 1])
     if cadd.button("➕ Add layer"):
@@ -445,7 +472,7 @@ def _render_plates_section():
     if cex.button("🗑 Remove last layer") and len(st.session_state.plates) > 1:
         st.session_state.plates.pop()
 
-def _render_fasteners_section():
+def _render_fasteners_section(units: Dict[str, str]):
     n_rows = len(st.session_state.pitches)
     fcols = st.columns([1, 3])
     with fcols[0]:
@@ -491,8 +518,14 @@ def _render_fasteners_section():
         ], key=f"bulk_method_v{st.session_state.get('_widget_version', 0)}")
         
         bc4, bc5, bc6 = st.columns(3)
-        b_d = bc4.number_input("Diameter [in]", 0.001, 2.0, 0.188, step=0.001, format="%.3f", key=f"bulk_d_v{st.session_state.get('_widget_version', 0)}")
-        b_E = bc5.number_input("Bolt E [psi]", 1e5, 5e8, 1e7, step=1e5, format="%.0f", key=f"bulk_E_v{st.session_state.get('_widget_version', 0)}")
+        # Dynamic ranges
+        is_si = units["stress"] == "MPa"
+        e_min = 1.0 if is_si else 1e4
+        e_max = 1e7 if is_si else 1e9
+        e_step = 1000.0 if is_si else 1e5
+
+        b_d = bc4.number_input(f"Diameter [{units['length']}]", 0.001, 1000.0, 0.188, step=0.001, format="%.3f", key=f"bulk_d_v{st.session_state.get('_widget_version', 0)}")
+        b_E = bc5.number_input(f"Bolt E [{units['stress']}]", e_min, e_max, 1e7, step=e_step, format="%.0f", key=f"bulk_E_v{st.session_state.get('_widget_version', 0)}")
         b_nu = bc6.number_input("Bolt ν", 0.0, 0.49, 0.3, step=0.01, format="%.2f", key=f"bulk_nu_v{st.session_state.get('_widget_version', 0)}")
         
         # Bulk Countersink
@@ -506,7 +539,7 @@ def _render_fasteners_section():
         b_cs_layers = []
         
         if b_is_cs:
-            b_cs_depth = bcs2.number_input("CS Depth [in]", 0.0, 1.0, 0.0, step=0.001, format="%.3f", key=f"bulk_csd_v{st.session_state.get('_widget_version', 0)}")
+            b_cs_depth = bcs2.number_input(f"CS Depth [{units['length']}]", 0.0, 100.0, 0.0, step=0.001, format="%.3f", key=f"bulk_csd_v{st.session_state.get('_widget_version', 0)}")
             b_cs_angle = bcs3.number_input("CS Angle [deg]", 0.0, 180.0, 100.0, step=1.0, key=f"bulk_csa_v{st.session_state.get('_widget_version', 0)}")
             
             bcs4, bcs5 = st.columns([1, 2])
@@ -621,8 +654,14 @@ def _render_fasteners_section():
                     "Node index", 1, max(n_rows, 1), clamped_row, key=f"fr_row_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1
                 )
             )
-            fastener.D = c1.number_input("Diameter d [in]", 0.01, 2.0, fastener.D, key=f"fr_d_{idx}_v{st.session_state.get('_widget_version', 0)}", step=0.001, format="%.3f")
-            fastener.Eb = c2.number_input("Bolt E [psi]", 1e5, 5e8, fastener.Eb, key=f"fr_Eb_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1e5, format="%.0f")
+            # Dynamic ranges
+            is_si = units["stress"] == "MPa"
+            e_min = 1.0 if is_si else 1e4
+            e_max = 1e7 if is_si else 1e9
+            e_step = 1000.0 if is_si else 1e5
+
+            fastener.D = c1.number_input(f"Diameter d [{units['length']}]", 0.01, 1000.0, fastener.D, key=f"fr_d_{idx}_v{st.session_state.get('_widget_version', 0)}", step=0.001, format="%.3f")
+            fastener.Eb = c2.number_input(f"Bolt E [{units['stress']}]", e_min, e_max, fastener.Eb, key=f"fr_Eb_{idx}_v{st.session_state.get('_widget_version', 0)}", step=e_step, format="%.0f")
             fastener.nu_b = c3.number_input("Bolt ν", 0.0, 0.49, fastener.nu_b, key=f"fr_nu_{idx}_v{st.session_state.get('_widget_version', 0)}", step=0.01, format="%.2f")
             try:
                 method_index = methods.index(fastener.method)
@@ -632,7 +671,7 @@ def _render_fasteners_section():
             fastener.method = c4.selectbox("Method", methods, index=method_index, key=f"fr_m_{idx}_v{st.session_state.get('_widget_version', 0)}")
             if fastener.method == "Manual":
                 fastener.k_manual = st.number_input(
-                    "Manual k [lb/in]", 1.0, 1e12, fastener.k_manual or 1.0e6, key=f"fr_km_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1e5, format="%.0f"
+                    f"Manual k [{units['stiffness']}]", 1.0, 1e12, fastener.k_manual or 1.0e6, key=f"fr_km_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1e5, format="%.0f"
                 )
             
             # --- Fatigue Configuration ---
@@ -643,7 +682,7 @@ def _render_fasteners_section():
             h1, h2, h3, h4 = st.columns(4)
             fastener.hole_centered = h1.checkbox("Centered Hole", value=fastener.hole_centered, key=f"fr_hc_{idx}")
             if not fastener.hole_centered:
-                fastener.hole_offset = h2.number_input("Offset [in]", 0.0, 10.0, fastener.hole_offset, key=f"fr_ho_{idx}", step=0.001, format="%.3f")
+                fastener.hole_offset = h2.number_input(f"Offset [{units['length']}]", 0.0, 1000.0, fastener.hole_offset, key=f"fr_ho_{idx}", step=0.001, format="%.3f")
             else:
                 fastener.hole_offset = 0.0
                 h2.text_input("Offset", value="0.0 (Centered)", disabled=True, key=f"fr_ho_dis_{idx}")
@@ -682,13 +721,13 @@ def _render_fasteners_section():
                 csa1, csa2, csa3 = st.columns(3)
                 
                 # Depth is common
-                fastener.cs_depth = csa1.number_input("CS Depth [in]", 0.0, 1.0, fastener.cs_depth, key=f"fr_csdepth_{idx}", step=0.001, format="%.3f")
+                fastener.cs_depth = csa1.number_input(f"CS Depth [{units['length']}]", 0.0, 100.0, fastener.cs_depth, key=f"fr_csdepth_{idx}", step=0.001, format="%.3f")
                 
                 if "Angle" in cs_mode:
                     fastener.cs_angle = csa2.number_input("CS Angle [deg]", 0.0, 180.0, fastener.cs_angle, key=f"fr_csangle_{idx}", step=1.0)
                 else:
                     # Diameter
-                    cs_diam = csa2.number_input("CS Diameter [in]", fastener.D, 5.0, fastener.D + 2 * fastener.cs_depth, key=f"fr_csdiam_{idx}")
+                    cs_diam = csa2.number_input(f"CS Diameter [{units['length']}]", fastener.D, 500.0, fastener.D + 2 * fastener.cs_depth, key=f"fr_csdiam_{idx}")
                     if fastener.cs_depth > 1e-6 and cs_diam > fastener.D:
                         theta_rad = 2 * math.atan((cs_diam - fastener.D) / (2 * fastener.cs_depth))
                         fastener.cs_angle = math.degrees(theta_rad)
@@ -742,7 +781,7 @@ def _render_fasteners_section():
             if 0 <= idx < len(st.session_state.fasteners):
                 st.session_state.fasteners.pop(idx)
 
-def _render_supports_section(pitches: List[float], plates: List[Plate]) -> List[Tuple[int, int, float]]:
+def _render_supports_section(pitches: List[float], plates: List[Plate], units: Dict[str, str]) -> List[Tuple[int, int, float]]:
     if st.button("➕ Add support"):
         st.session_state.supports.append((0, 0, 0.0))
     remove_ids: List[int] = []
@@ -764,7 +803,7 @@ def _render_supports_section(pitches: List[float], plates: List[Plate]) -> List[
             max_local = segments
             clamped_local = min(max(int(local_node), 0), max_local)
             local_node = c2.number_input("Local node (0..nSeg)", 0, max_local, clamped_local, key=f"sp_ln_{idx}_v{st.session_state.get('_widget_version', 0)}")
-            value = c3.number_input("u [in]", -1.0, 1.0, float(value), key=f"sp_val_{idx}_v{st.session_state.get('_widget_version', 0)}", step=0.001, format="%.3f")
+            value = c3.number_input(f"u [{units['length']}]", -1.0, 1.0, float(value), key=f"sp_val_{idx}_v{st.session_state.get('_widget_version', 0)}", step=0.001, format="%.3f")
             st.session_state.supports[idx] = (int(plate_idx), int(local_node), float(value))
             if c4.button("✖", key=f"sp_rm_{idx}_v{st.session_state.get('_widget_version', 0)}"):
                 remove_ids.append(idx)
@@ -855,7 +894,7 @@ def _load_example_figure76():
     st.session_state["n_rows"] = len(st.session_state.pitches)
     st.rerun()
 
-def render_solution_tables(solution: JointSolution):
+def render_solution_tables(solution: JointSolution, units: Dict[str, str]):
     # Global Controls
     col_exp, col_col, _ = st.columns([1, 1, 4])
     if col_exp.button("Expand All"):
@@ -870,17 +909,17 @@ def render_solution_tables(solution: JointSolution):
         node_dicts = solution.nodes_as_dicts()
         if pd is not None:
             df_nodes = pd.DataFrame(node_dicts)
-            cols = ["Node ID", "X Location", "Displacement", "Net Bypass Load", "Thickness", "Bypass Area", "Order", "Multiple Thickness"]
+            cols = ["Node ID", f"X Location [{units['length']}]", f"Displacement [{units['length']}]", f"Net Bypass Load [{units['force']}]", f"Thickness [{units['length']}]", f"Bypass Area [{units['area']}]", "Order", "Multiple Thickness"]
             cols = [c for c in cols if c in df_nodes.columns]
             
             st.dataframe(
                 df_nodes[cols].style.format(
                     {
-                        "X Location": "{:.3f}",
-                        "Displacement": "{:.6e}",
-                        "Net Bypass Load": "{:.1f}",
-                        "Thickness": "{:.3f}",
-                        "Bypass Area": "{:.3f}",
+                        f"X Location [{units['length']}]": "{:.3f}",
+                        f"Displacement [{units['length']}]": "{:.6e}",
+                        f"Net Bypass Load [{units['force']}]": "{:.1f}",
+                        f"Thickness [{units['length']}]": "{:.3f}",
+                        f"Bypass Area [{units['area']}]": "{:.3f}",
                     }
                 ),
                 width="stretch",
@@ -894,10 +933,10 @@ def render_solution_tables(solution: JointSolution):
         bar_dicts = solution.bars_as_dicts()
         if pd is not None:
             df_bars = pd.DataFrame(bar_dicts)
-            cols = ["ID", "Axial Force", "Stiffness", "Modulus"]
+            cols = ["ID", f"Axial Force [{units['force']}]", f"Stiffness [{units['stiffness']}]", f"Modulus [{units['stress']}]"]
             cols = [c for c in cols if c in df_bars.columns]
             st.dataframe(
-                df_bars[cols].style.format({"Axial Force": "{:.1f}", "Stiffness": "{:.2e}", "Modulus": "{:.3e}"}),
+                df_bars[cols].style.format({f"Axial Force [{units['force']}]": "{:.1f}", f"Stiffness [{units['stiffness']}]": "{:.2e}", f"Modulus [{units['stress']}]": "{:.3e}"}),
                 width="stretch",
                 hide_index=True,
             )
@@ -913,19 +952,19 @@ def render_solution_tables(solution: JointSolution):
             if "ID" not in df_fast.columns and "Row" in df_fast.columns:
                  df_fast["ID"] = df_fast["Row"]
                  
-            cols = ["ID", "Load", "Brg Force Upper", "Brg Force Lower", "Stiffness", "Modulus", "Diameter", "Quantity", "Thickness Node 1", "Thickness Node 2"]
+            cols = ["ID", f"Load [{units['force']}]", f"Brg Force Upper [{units['force']}]", f"Brg Force Lower [{units['force']}]", f"Stiffness [{units['stiffness']}]", f"Modulus [{units['stress']}]", f"Diameter [{units['length']}]", "Quantity", f"Thickness Node 1 [{units['length']}]", f"Thickness Node 2 [{units['length']}]"]
             cols = [c for c in cols if c in df_fast.columns]
             st.dataframe(
                 df_fast[cols].style.format({
-                    "Load": "{:.1f}", 
-                    "Brg Force Upper": "{:.1f}",
-                    "Brg Force Lower": "{:.1f}",
-                    "Stiffness": "{:.2e}", 
-                    "Modulus": "{:.3e}",
-                    "Diameter": "{:.3f}",
+                    f"Load [{units['force']}]": "{:.1f}", 
+                    f"Brg Force Upper [{units['force']}]": "{:.1f}",
+                    f"Brg Force Lower [{units['force']}]": "{:.1f}",
+                    f"Stiffness [{units['stiffness']}]": "{:.2e}", 
+                    f"Modulus [{units['stress']}]": "{:.3e}",
+                    f"Diameter [{units['length']}]": "{:.3f}",
                     "Quantity": "{:.1f}",
-                    "Thickness Node 1": "{:.3f}",
-                    "Thickness Node 2": "{:.3f}",
+                    f"Thickness Node 1 [{units['length']}]": "{:.3f}",
+                    f"Thickness Node 2 [{units['length']}]": "{:.3f}",
                 }),
                 width="stretch",
                 hide_index=True,
@@ -939,10 +978,10 @@ def render_solution_tables(solution: JointSolution):
             reaction_dicts = solution.reactions_as_dicts()
             if pd is not None:
                 df_react = pd.DataFrame(reaction_dicts)
-                cols = ["Node ID", "Force"]
+                cols = ["Node ID", f"Force [{units['force']}]"]
                 cols = [c for c in cols if c in df_react.columns]
                 st.dataframe(
-                    df_react[cols].style.format({"Force": "{:.1f}"}),
+                    df_react[cols].style.format({f"Force [{units['force']}]": "{:.1f}"}),
                     width="stretch",
                     hide_index=True,
                 )
@@ -954,19 +993,19 @@ def render_solution_tables(solution: JointSolution):
         classic_dicts = solution.classic_results_as_dicts()
         if pd is not None:
             df_classic = pd.DataFrame(classic_dicts)
-            cols = ["Element", "Node", "Thickness", "Area", "Incoming Load", "Bypass Load", "Load Transfer", "L.Trans / P", "Detail Stress", "Bearing Stress", "Fbr / FDetail"]
+            cols = ["Element", "Node", f"Thickness [{units['length']}]", f"Area [{units['area']}]", f"Incoming Load [{units['force']}]", f"Bypass Load [{units['force']}]", f"Load Transfer [{units['force']}]", "L.Trans / P", f"Detail Stress [{units['stress']}]", f"Bearing Stress [{units['stress']}]", "Fbr / FDetail"]
             cols = [c for c in cols if c in df_classic.columns]
             
             st.dataframe(
                 df_classic[cols].style.format({
-                    "Thickness": "{:.3f}",
-                    "Area": "{:.3f}",
-                    "Incoming Load": "{:.1f}",
-                    "Bypass Load": "{:.1f}",
-                    "Load Transfer": "{:.1f}",
+                    f"Thickness [{units['length']}]": "{:.3f}",
+                    f"Area [{units['area']}]": "{:.3f}",
+                    f"Incoming Load [{units['force']}]": "{:.1f}",
+                    f"Bypass Load [{units['force']}]": "{:.1f}",
+                    f"Load Transfer [{units['force']}]": "{:.1f}",
                     "L.Trans / P": "{:.3f}",
-                    "Detail Stress": "{:.1f}",
-                    "Bearing Stress": "{:.1f}",
+                    f"Detail Stress [{units['stress']}]": "{:.1f}",
+                    f"Bearing Stress [{units['stress']}]": "{:.1f}",
                     "Fbr / FDetail": "{:.3f}",
                 }),
                 width="stretch",
@@ -981,7 +1020,7 @@ def render_solution_tables(solution: JointSolution):
         if pd is not None:
             df_bb = pd.DataFrame(bb_dicts)
             st.dataframe(
-                df_bb.style.format({"Bearing [lb]": "{:.1f}", "Bypass [lb]": "{:.1f}"}),
+                df_bb.style.format({f"Bearing [{units['force']}]": "{:.1f}", f"Bypass [{units['force']}]": "{:.1f}"}),
                 width="stretch",
                 hide_index=True,
             )
@@ -995,9 +1034,9 @@ def render_solution_tables(solution: JointSolution):
         max_load = max([abs(b.axial_force) for b in solution.bars]) if solution.bars else 0.0
         max_shear = max([abs(f.force) for f in solution.fasteners]) if solution.fasteners else 0.0
         
-        st.write(f"**Max Displacement:** {max_disp:.6e} in")
-        st.write(f"**Max Axial Load:** {max_load:.1f} lb")
-        st.write(f"**Max Fastener Shear:** {max_shear:.1f} lb")
+        st.write(f"**Max Displacement:** {max_disp:.6e} {units['length']}")
+        st.write(f"**Max Axial Load:** {max_load:.1f} {units['force']}")
+        st.write(f"**Max Fastener Shear:** {max_shear:.1f} {units['force']}")
         
     # 8. Force Balance Check
     with st.expander("Force Balance Check", expanded=expanded_state):
@@ -1031,9 +1070,9 @@ def render_solution_tables(solution: JointSolution):
         diff = total_right - total_left
         
         c1, c2, c3 = st.columns(3)
-        c1.metric("Total Rightward Force", f"{total_right:.1f} lb")
-        c2.metric("Total Leftward Force", f"{total_left:.1f} lb")
-        c3.metric("Net Force (Imbalance)", f"{diff:.1e} lb", delta_color="inverse")
+        c1.metric("Total Rightward Force", f"{total_right:.1f} {units['force']}")
+        c2.metric("Total Leftward Force", f"{total_left:.1f} {units['force']}")
+        c3.metric("Net Force (Imbalance)", f"{diff:.1e} {units['force']}", delta_color="inverse")
         
         if abs(diff) > 1e-3:
             st.error("Warning: Significant force imbalance detected!")
@@ -1047,13 +1086,22 @@ def render_solution_tables(solution: JointSolution):
             if pd is not None:
                 df_fatigue = pd.DataFrame(fatigue_dicts)
                 
+                # Rename columns to include units
+                rename_map = {
+                    "bearing_load": f"bearing_load [{units['force']}]",
+                    "bypass_load": f"bypass_load [{units['force']}]",
+                    "sigma_ref": f"sigma_ref [{units['stress']}]",
+                    "peak_stress": f"peak_stress [{units['stress']}]"
+                }
+                df_fatigue = df_fatigue.rename(columns=rename_map)
+
                 # Highlight Critical Node
                 def highlight_crit(row):
                     if row["node_id"] == solution.critical_node_id:
                         return ['background-color: #ffcccc'] * len(row)
                     return [''] * len(row)
 
-                cols = ["node_id", "plate_name", "ktg", "ktn", "ktb", "theta", "ssf", "bearing_load", "bypass_load", "sigma_ref", "peak_stress"]
+                cols = ["node_id", "plate_name", "ktg", "ktn", "ktb", "theta", "ssf", f"bearing_load [{units['force']}]", f"bypass_load [{units['force']}]", f"sigma_ref [{units['stress']}]", f"peak_stress [{units['stress']}]"]
                 cols = [c for c in cols if c in df_fatigue.columns]
                 
                 st.dataframe(
@@ -1063,10 +1111,11 @@ def render_solution_tables(solution: JointSolution):
                         "ktb": "{:.2f}",
                         "theta": "{:.2f}",
                         "ssf": "{:.2f}",
-                        "bearing_load": "{:.1f}",
-                        "bypass_load": "{:.1f}",
-                        "sigma_ref": "{:.1f}",
-                        "peak_stress": "{:.1f}",
+                        "ssf": "{:.2f}",
+                        f"bearing_load [{units['force']}]": "{:.1f}",
+                        f"bypass_load [{units['force']}]": "{:.1f}",
+                        f"sigma_ref [{units['stress']}]": "{:.1f}",
+                        f"peak_stress [{units['stress']}]": "{:.1f}",
                     }).apply(highlight_crit, axis=1),
                     width="stretch",
                     hide_index=True,

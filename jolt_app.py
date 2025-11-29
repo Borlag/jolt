@@ -23,7 +23,7 @@ st.set_page_config(page_title="JOLT 1D Joint", layout="wide")
 initialize_session_state()
 
 # Render sidebar
-pitches, plates, fasteners, supports, point_forces = render_sidebar()
+pitches, plates, fasteners, supports, point_forces, units = render_sidebar()
 
 # Main content
 st.title("JOLT 1D Joint — Bars + Springs")
@@ -64,6 +64,7 @@ if "solution" in st.session_state:
                     fasteners=fasteners,
                     supports=supports,
                     solution=solution,
+                    units=units,
                     mode=mode,
                     font_size=font_size,
                 )
@@ -75,7 +76,7 @@ if "solution" in st.session_state:
     else:
         st.warning("Plotly is not installed. Please install 'plotly' to view interactive diagrams.")
 
-    render_solution_tables(solution)
+    render_solution_tables(solution, units)
     render_save_section(pitches, plates, fasteners, supports, point_forces)
 
 

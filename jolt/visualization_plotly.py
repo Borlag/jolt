@@ -26,6 +26,7 @@ def render_joint_diagram_plotly(
     fasteners: Sequence[FastenerRow],
     supports: Sequence[Tuple[int, int, float]],
     solution: JointSolution,
+    units: Dict[str, str],
     mode: str = "scheme",
     font_size: int = 10,
 ) -> Optional[go.Figure]:
@@ -166,7 +167,7 @@ def render_joint_diagram_plotly(
             fig.add_annotation(
                 x=start_x - direction * 0.65 * max_pitch,
                 y=y + 0.3 * vertical_spacing,
-                text=f"{plate.Fx_left:+.0f} lb",
+                text=f"{plate.Fx_left:+.0f} {units['force']}",
                 showarrow=False,
                 font=dict(color="red", size=font_size + 2, weight="bold")
             )
@@ -189,7 +190,7 @@ def render_joint_diagram_plotly(
             fig.add_annotation(
                 x=end_x - direction * 0.65 * max_pitch,
                 y=y + 0.3 * vertical_spacing,
-                text=f"{plate.Fx_right:+.0f} lb",
+                text=f"{plate.Fx_right:+.0f} {units['force']}",
                 showarrow=False,
                 font=dict(color="red", size=font_size + 2, weight="bold")
             )
@@ -252,9 +253,9 @@ def render_joint_diagram_plotly(
         
         fig.add_trace(go.Scatter(
             x=[x_node],
-            y=[y_node - 0.25 * vertical_spacing],
+            y=[y_node - 0.1 * vertical_spacing], # Moved closer to node
             mode="markers",
-            marker=dict(symbol="triangle-down", size=15, color="green"),
+            marker=dict(symbol="triangle-up", size=15, color="green"), # Changed to triangle-up
             showlegend=False,
             hoverinfo="text",
             text=f"Support S{s_idx}"
@@ -262,12 +263,12 @@ def render_joint_diagram_plotly(
         
         label_text = (
             f"S{s_idx}: {plates[plate_idx].name} n{global_node}<br>"
-            f"u={value:+.3f} in"
-            + (f"<br>R={reaction:+.1f} lb" if reaction is not None else "")
+            f"u={value:+.3f} {units['length']}"
+            + (f"<br>R={reaction:+.1f} {units['force']}" if reaction is not None else "")
         )
         fig.add_annotation(
             x=x_node,
-            y=y_node - 0.5 * vertical_spacing,
+            y=y_node - 0.25 * vertical_spacing, # Moved label up as well
             text=label_text,
             showarrow=False,
             bgcolor="rgba(255, 255, 255, 0.9)",
@@ -312,7 +313,7 @@ def render_joint_diagram_plotly(
             fig.add_annotation(
                 x=x_node,
                 y=y_node + 0.25 * vertical_spacing,
-                text=f"u = {disp * 1000:+.3f} mil",
+                text=f"u = {disp:+.6f} {units['length']}",
                 showarrow=False,
                 font=dict(color="orange", size=font_size, weight="bold")
             )
@@ -327,7 +328,7 @@ def render_joint_diagram_plotly(
             fig.add_annotation(
                 x=x_mid,
                 y=y_mid + 0.2 * vertical_spacing,
-                text=f"{bar.axial_force:+.1f} lb",
+                text=f"{bar.axial_force:+.1f} {units['force']}",
                 showarrow=False,
                 bgcolor="rgba(255, 255, 255, 0.9)",
                 bordercolor="blue",
@@ -370,7 +371,7 @@ def render_joint_diagram_plotly(
                 fig.add_annotation(
                     x=x_pos,
                     y=y_center + offset,
-                    text=f"F{fastener.row}<sup>{fastener.plate_i}-{fastener.plate_j}</sup> = {fastener.force:+.1f} lb",
+                    text=f"F{fastener.row}<sup>{fastener.plate_i}-{fastener.plate_j}</sup> = {fastener.force:+.1f} {units['force']}",
                     showarrow=False,
                     bgcolor="rgba(255, 255, 255, 0.92)",
                     bordercolor="purple",
@@ -384,7 +385,7 @@ def render_joint_diagram_plotly(
     fig.update_xaxes(
         tickvals=global_nodes,
         ticktext=[f"n{i + 1}" for i in range(len(global_nodes))],
-        title_text="x [in]",
+        title_text=f"x [{units['length']}]",
         showgrid=False,
         zeroline=False
     )
@@ -449,7 +450,7 @@ def render_joint_diagram_plotly(
                     marker=dict(size=25, color="rgba(255, 0, 0, 0.3)", line=dict(width=3, color="red"), symbol="circle-open"),
                     name="Critical Node", # Legend entry
                     hoverinfo="text",
-                    hovertext=f"Critical Node: {solution.critical_node_id}<br>Peak Stress: {peak_val:.0f} psi<br>SSF: {ssf_val:.2f}"
+                    hovertext=f"Critical Node: {solution.critical_node_id}<br>Peak Stress: {peak_val:.0f} {units['stress']}<br>SSF: {ssf_val:.2f}"
                 ))
                 
                 fig.add_annotation(
