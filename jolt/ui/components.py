@@ -909,6 +909,16 @@ def render_solution_tables(solution: JointSolution, units: Dict[str, str]):
         node_dicts = solution.nodes_as_dicts()
         if pd is not None:
             df_nodes = pd.DataFrame(node_dicts)
+            # Rename columns to include units
+            rename_map = {
+                "X Location": f"X Location [{units['length']}]",
+                "Displacement": f"Displacement [{units['length']}]",
+                "Net Bypass Load": f"Net Bypass Load [{units['force']}]",
+                "Thickness": f"Thickness [{units['length']}]",
+                "Bypass Area": f"Bypass Area [{units['area']}]"
+            }
+            df_nodes = df_nodes.rename(columns=rename_map)
+
             cols = ["Node ID", f"X Location [{units['length']}]", f"Displacement [{units['length']}]", f"Net Bypass Load [{units['force']}]", f"Thickness [{units['length']}]", f"Bypass Area [{units['area']}]", "Order", "Multiple Thickness"]
             cols = [c for c in cols if c in df_nodes.columns]
             
@@ -933,6 +943,14 @@ def render_solution_tables(solution: JointSolution, units: Dict[str, str]):
         bar_dicts = solution.bars_as_dicts()
         if pd is not None:
             df_bars = pd.DataFrame(bar_dicts)
+            # Rename columns to include units
+            rename_map = {
+                "Axial Force": f"Axial Force [{units['force']}]",
+                "Stiffness": f"Stiffness [{units['stiffness']}]",
+                "Modulus": f"Modulus [{units['stress']}]"
+            }
+            df_bars = df_bars.rename(columns=rename_map)
+
             cols = ["ID", f"Axial Force [{units['force']}]", f"Stiffness [{units['stiffness']}]", f"Modulus [{units['stress']}]"]
             cols = [c for c in cols if c in df_bars.columns]
             st.dataframe(
@@ -952,6 +970,19 @@ def render_solution_tables(solution: JointSolution, units: Dict[str, str]):
             if "ID" not in df_fast.columns and "Row" in df_fast.columns:
                  df_fast["ID"] = df_fast["Row"]
                  
+            # Rename columns to include units
+            rename_map = {
+                "Load": f"Load [{units['force']}]",
+                "Brg Force Upper": f"Brg Force Upper [{units['force']}]",
+                "Brg Force Lower": f"Brg Force Lower [{units['force']}]",
+                "Stiffness": f"Stiffness [{units['stiffness']}]",
+                "Modulus": f"Modulus [{units['stress']}]",
+                "Diameter": f"Diameter [{units['length']}]",
+                "Thickness Node 1": f"Thickness Node 1 [{units['length']}]",
+                "Thickness Node 2": f"Thickness Node 2 [{units['length']}]"
+            }
+            df_fast = df_fast.rename(columns=rename_map)
+
             cols = ["ID", f"Load [{units['force']}]", f"Brg Force Upper [{units['force']}]", f"Brg Force Lower [{units['force']}]", f"Stiffness [{units['stiffness']}]", f"Modulus [{units['stress']}]", f"Diameter [{units['length']}]", "Quantity", f"Thickness Node 1 [{units['length']}]", f"Thickness Node 2 [{units['length']}]"]
             cols = [c for c in cols if c in df_fast.columns]
             st.dataframe(
@@ -978,6 +1009,12 @@ def render_solution_tables(solution: JointSolution, units: Dict[str, str]):
             reaction_dicts = solution.reactions_as_dicts()
             if pd is not None:
                 df_react = pd.DataFrame(reaction_dicts)
+                # Rename columns to include units
+                rename_map = {
+                    "Force": f"Force [{units['force']}]"
+                }
+                df_react = df_react.rename(columns=rename_map)
+
                 cols = ["Node ID", f"Force [{units['force']}]"]
                 cols = [c for c in cols if c in df_react.columns]
                 st.dataframe(
@@ -993,6 +1030,18 @@ def render_solution_tables(solution: JointSolution, units: Dict[str, str]):
         classic_dicts = solution.classic_results_as_dicts()
         if pd is not None:
             df_classic = pd.DataFrame(classic_dicts)
+            # Rename columns to include units
+            rename_map = {
+                "Thickness": f"Thickness [{units['length']}]",
+                "Area": f"Area [{units['area']}]",
+                "Incoming Load": f"Incoming Load [{units['force']}]",
+                "Bypass Load": f"Bypass Load [{units['force']}]",
+                "Load Transfer": f"Load Transfer [{units['force']}]",
+                "Detail Stress": f"Detail Stress [{units['stress']}]",
+                "Bearing Stress": f"Bearing Stress [{units['stress']}]"
+            }
+            df_classic = df_classic.rename(columns=rename_map)
+
             cols = ["Element", "Node", f"Thickness [{units['length']}]", f"Area [{units['area']}]", f"Incoming Load [{units['force']}]", f"Bypass Load [{units['force']}]", f"Load Transfer [{units['force']}]", "L.Trans / P", f"Detail Stress [{units['stress']}]", f"Bearing Stress [{units['stress']}]", "Fbr / FDetail"]
             cols = [c for c in cols if c in df_classic.columns]
             
@@ -1019,6 +1068,13 @@ def render_solution_tables(solution: JointSolution, units: Dict[str, str]):
         bb_dicts = solution.bearing_bypass_as_dicts()
         if pd is not None:
             df_bb = pd.DataFrame(bb_dicts)
+            # Rename columns to include units
+            rename_map = {
+                "Bearing [lb]": f"Bearing [{units['force']}]",
+                "Bypass [lb]": f"Bypass [{units['force']}]"
+            }
+            df_bb = df_bb.rename(columns=rename_map)
+            
             st.dataframe(
                 df_bb.style.format({f"Bearing [{units['force']}]": "{:.1f}", f"Bypass [{units['force']}]": "{:.1f}"}),
                 width="stretch",
