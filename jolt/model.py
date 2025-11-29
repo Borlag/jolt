@@ -34,7 +34,9 @@ class FatigueResult:
     term_bypass: float
     peak_stress: float = 0.0
     fsi: float = 0.0
+    fsi: float = 0.0
     f_max: Optional[float] = None
+    incoming_load: float = 0.0
 
     def as_dict(self) -> Dict[str, float]:
         return asdict(self)
@@ -232,10 +234,41 @@ class JointSolution:
                 else:
                     is_cs = False
             
+            # Detect Support Side
+            # We need to know support side to determine Incoming/Bypass correctly for P_max
+            support_left = 0
+            support_right = 0
+            for r in self.reactions:
+                if r.local_node == 0: support_left += 1
+                else: support_right += 1
+            is_support_left = support_left >= support_right
+
+            # Determine Incoming and Bypass
+            # Incoming: Load on Support Side
+            # Bypass: Load on Free Side
+            if is_support_left:
+                bypass = abs(bb.flow_right)
+                incoming = abs(bb.flow_left)
+            else:
+                bypass = abs(bb.flow_left)
+                incoming = abs(bb.flow_right)
+            
+            # Reference Load for SSF is the maximum load (Incoming or Bypass)
+            P_max = max(incoming, bypass)
+
             # Calculate SSF
             res = fatigue.calculate_ssf(
                 load_transfer=P_bearing,
-                load_bypass=P_bypass,
+                load_bypass=P_bypass, # Still pass the actual bypass load for term_bypass calculation?
+                # Wait, term_bypass = Ktg * (load_bypass / Area).
+                # If we use P_max for sigma_ref, do we still use P_bypass for term_bypass?
+                # The formula is SSF = (alpha*beta/sigma_ref) * (term_bearing + term_bypass).
+                # If sigma_ref changes, SSF changes.
+                # But term_bypass depends on load_bypass.
+                # Usually load_bypass in term_bypass is the load passing through the net section.
+                # Which is P_bypass (Free Side).
+                # So we keep load_bypass=P_bypass.
+                # But we pass reference_load=P_max for sigma_ref.
                 D=D,
                 W=W,
                 t=t,
@@ -245,7 +278,8 @@ class JointSolution:
                 alpha=f_def.hole_condition_factor,
                 beta=f_def.hole_filling_factor,
                 shear_type="single", 
-                cs_affects_bypass=f_def.cs_affects_bypass
+                cs_affects_bypass=f_def.cs_affects_bypass,
+                reference_load=P_max
             )
             
             peak_stress = res["ssf"] * res["sigma_ref"]
@@ -275,7 +309,8 @@ class JointSolution:
                 term_bypass=res["term_bypass"],
                 peak_stress=peak_stress,
                 fsi=fsi,
-                f_max=f_max
+                f_max=f_max,
+                incoming_load=incoming
             )
             
             self.fatigue_results.append(f_res)
@@ -289,7 +324,8 @@ class JointSolution:
                 "f_max": f_max,
                 "fsi": fsi,
                 "x": node.x, 
-                "y": 0.0 
+                "y": 0.0,
+                "incoming_load": incoming
             }
             
             if node.plate_name not in plate_results:
@@ -319,7 +355,12 @@ class JointSolution:
             self.critical_node_id = None
 
     def fatigue_results_as_dicts(self) -> List[Dict[str, float]]:
-        return [res.as_dict() for res in self.fatigue_results]
+        res_list = []
+        for res in self.fatigue_results:
+            d = res.as_dict()
+            d["Incoming Load"] = res.incoming_load
+            res_list.append(d)
+        return res_list
 
 
     def fasteners_as_dicts(self) -> List[Dict[str, float]]:
@@ -434,6 +475,15 @@ class JointSolution:
         
         bb_map = {(bb.plate_name, bb.row): bb for bb in self.bearing_bypass}
         
+            # Detect Support Side from reactions
+        support_left = 0
+        support_right = 0
+        for r in self.reactions:
+            if r.local_node == 0: support_left += 1
+            else: support_right += 1
+            
+        is_support_left = support_left >= support_right
+
         for node in self.nodes:
             if node.row not in fastener_rows:
                 continue
@@ -449,8 +499,16 @@ class JointSolution:
             plate_idx = plate_name_to_idx.get(node.plate_name)
             transfer = node_bearing_map.get((plate_idx, node.row), 0.0)
             
-            bypass = abs(bb.flow_right)
-            incoming = transfer + bypass
+            # Determine Incoming and Bypass based on support direction
+            # User Definition:
+            # Incoming: Load on the Support Side (Towards Support)
+            # Bypass: Load on the Free Side (Away from Support)
+            if is_support_left:
+                bypass = abs(bb.flow_right)
+                incoming = abs(bb.flow_left)
+            else:
+                bypass = abs(bb.flow_left)
+                incoming = abs(bb.flow_right)
             
             detail_stress = max(incoming, bypass) / area if area > 0 else 0.0
             bearing_stress = transfer / (diameter * thickness) if diameter * thickness > 0 else 0.0
@@ -1242,6 +1300,15 @@ class Joint1D:
         # Map (plate, seg) -> force
         bar_force_map = {(b.plate_id, b.segment): b.axial_force for b in bar_results}
         
+        # Detect Support Side
+        support_left = 0
+        support_right = 0
+        for _, ln, _ in validated_supports:
+            if ln == 0: support_left += 1
+            else: support_right += 1
+            
+        is_support_left = support_left >= support_right
+
         for node in node_results:
             # Load Right (downstream)
             f_right = bar_force_map.get((node.plate_id, node.local_node), 0.0)
@@ -1249,19 +1316,11 @@ class Joint1D:
             f_left = bar_force_map.get((node.plate_id, node.local_node - 1), 0.0)
             
             # Bypass is the load remaining in the plate after the fastener.
-            # If flow is left->right, Bypass = f_right.
-            # If flow is right->left, Bypass = f_left?
-            # Let's define Bypass as the load on the side away from the reference end?
-            # Standard convention: Bypass is the load in the segment 'downstream' of the fastener.
-            # But 'downstream' depends on load direction.
-            # Let's use the maximum absolute load? No, that includes transfer.
-            # Let's use the average? No.
-            # Usually Bypass = Load leaving the station.
-            # Let's use f_right for now (assuming left-to-right flow).
-            # But we should probably report both or the one consistent with flow.
-            # For 1D model, we often just list the bar forces.
-            # Let's store f_right as "Net Bypass" for now, as it matches "Load in segment i".
-            node.net_bypass = f_right
+            # We define Bypass as the load on the side AWAY from the support.
+            if is_support_left:
+                node.net_bypass = f_right
+            else:
+                node.net_bypass = f_left
 
         # Bearing/Bypass Table
         bb_results = []

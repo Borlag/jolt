@@ -225,7 +225,8 @@ def calculate_ssf(
     alpha: float = 1.0,
     beta: float = 1.0,
     shear_type: str = "single",
-    cs_affects_bypass: bool = False
+    cs_affects_bypass: bool = False,
+    reference_load: Union[float, None] = None
 ) -> Dict[str, float]:
     """
     Calculate Stress Severity Factor (SSF) with geometric corrections.
@@ -275,7 +276,10 @@ def calculate_ssf(
         
     if area_gross <= 0: area_gross = 1e-6
     
-    sigma_ref = (load_transfer + load_bypass) / area_gross
+    if reference_load is not None:
+        sigma_ref = reference_load / area_gross
+    else:
+        sigma_ref = (load_transfer + load_bypass) / area_gross
     
     if abs(sigma_ref) < 1e-9:
         return {
