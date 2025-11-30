@@ -58,6 +58,8 @@ def clear_configuration_widget_state() -> None:
     print(f"Cleared {removed_count} widget state keys.")
 
 
+from copy import deepcopy
+
 def serialize_configuration(
     pitches: Sequence[float],
     plates: Sequence[Plate],
@@ -71,8 +73,8 @@ def serialize_configuration(
 ) -> JointConfiguration:
     configuration = JointConfiguration(
         pitches=list(pitches),
-        plates=list(plates),
-        fasteners=list(fasteners),
+        plates=deepcopy(list(plates)),
+        fasteners=deepcopy(list(fasteners)),
         supports=[(int(item[0]), int(item[1]), float(item[2])) for item in supports],
         point_forces=[
             (int(item[0]), int(item[1]), float(item[2]))
@@ -95,8 +97,8 @@ def apply_configuration(config: Union[Dict[str, Any], JointConfiguration]) -> Jo
     )
     clear_configuration_widget_state()
     st.session_state.pitches = list(configuration.pitches)
-    st.session_state.plates = list(configuration.plates)
-    st.session_state.fasteners = list(configuration.fasteners)
+    st.session_state.plates = deepcopy(list(configuration.plates))
+    st.session_state.fasteners = deepcopy(list(configuration.fasteners))
     st.session_state.supports = list(configuration.supports)
     st.session_state.point_forces = list(configuration.point_forces)
     st.session_state.config_label = configuration.label or "Case"

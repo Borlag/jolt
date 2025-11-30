@@ -985,13 +985,21 @@ def _render_saved_configs_section():
             else:
                 display_name = getattr(uploaded_file, "name", "uploaded")
                 
-                # Add all loaded configs to session state
-                existing_ids = {m.model_id for m in st.session_state.saved_models}
+                # Add or Update loaded configs in session state
+                existing_map = {m.model_id: i for i, m in enumerate(st.session_state.saved_models)}
                 added_count = 0
+                updated_count = 0
+                
                 for config in loaded_configs:
-                    if config.model_id not in existing_ids:
+                    if config.model_id in existing_map:
+                        # Update existing model
+                        idx = existing_map[config.model_id]
+                        st.session_state.saved_models[idx] = config
+                        updated_count += 1
+                    else:
+                        # Add new model
                         st.session_state.saved_models.append(config)
-                        existing_ids.add(config.model_id)
+                        existing_map[config.model_id] = len(st.session_state.saved_models) - 1
                         added_count += 1
                 
                 # Apply the first one if it's a single load, or just notify for bulk
@@ -1003,8 +1011,15 @@ def _render_saved_configs_section():
                         f"Loaded configuration '{config.label or display_name}'."
                     )
                 else:
+                    msg_parts = []
+                    if added_count > 0:
+                        msg_parts.append(f"Imported {added_count} new")
+                    if updated_count > 0:
+                        msg_parts.append(f"Updated {updated_count} existing")
+                    
+                    summary = ", ".join(msg_parts) if msg_parts else "No changes"
                     st.session_state["_load_feedback"] = (
-                        f"Imported {added_count} new configurations from '{display_name}'."
+                        f"{summary} configurations from '{display_name}'."
                     )
 
                 st.session_state["_reset_cfg_upload"] = True
@@ -1056,6 +1071,35 @@ def _render_saved_configs_section():
                 mime="application/json",
                 key="export_all_cases"
             )
+            
+        # --- RE-SOLVE ALL ---
+        if st.button("Re-Solve All Cases", help="Re-calculate results for all saved cases using their stored inputs."):
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            try:
+                updated_count = 0
+                for i, config in enumerate(saved_configs):
+                    status_text.text(f"Solving {config.label}...")
+                    
+                    # Re-build and solve
+                    model = config.build_model()
+                    solution = model.solve(
+                        supports=config.supports,
+                        point_forces=config.point_forces
+                    )
+                    
+                    # Update results in place (safe because config is already deepcopied in session state)
+                    config.results = solution.to_dict()
+                    updated_count += 1
+                    progress_bar.progress((i + 1) / len(saved_configs))
+                
+                st.success(f"Successfully re-solved {updated_count} cases.")
+            except Exception as e:
+                st.error(f"Failed to re-solve cases: {e}")
+            finally:
+                status_text.empty()
+                progress_bar.empty()
     else:
         st.info("No saved configurations yet. Save one after solving a case.")
 
