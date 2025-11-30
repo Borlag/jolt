@@ -183,114 +183,131 @@ def render_comparison_tab(saved_models: List[JointConfiguration], current_units:
 
     # B. Node Inspector
     st.subheader("Node Inspector")
+    st.markdown("Select a specific node to inspect for each model.")
     
-    # 1. Select Model for Context
-    insp_model_label = st.selectbox("Select Model for Node List", [m.label for m in selected_models], index=0)
-    insp_model = next((m for m in selected_models if m.label == insp_model_label), selected_models[0])
-    insp_sol = solutions[insp_model.model_id]
-
-    # 2. Select Node (based on Selected Model and selected Element)
-    inspector_options = []
-    insp_nodes_map = {} # label -> node_obj
+    # Dictionary to store the selected node object for each model
+    # Key: model_id, Value: NodeResult object (or None)
+    selected_nodes_map = {}
     
-    if target_element == "All Elements":
-        nodes = insp_sol.nodes
-        nodes.sort(key=lambda n: (n.plate_name, n.row))
-        for n in nodes:
-            lbl = f"{n.plate_name} - Row {n.row}"
-            inspector_options.append(lbl)
-            insp_nodes_map[lbl] = n
-    else:
-        nodes = [n for n in insp_sol.nodes if n.plate_name == target_element]
-        nodes.sort(key=lambda n: n.row)
-        for n in nodes:
-            lbl = f"Row {n.row}"
-            inspector_options.append(lbl)
-            insp_nodes_map[lbl] = n
-            
-    if inspector_options:
-        selected_node_lbl = st.selectbox("Select Node to Inspect", inspector_options)
-        target_node_def = insp_nodes_map[selected_node_lbl]
-        
-        # We use Plate Name and Row as the key to find this node in OTHER models
-        target_key = (target_node_def.plate_name, target_node_def.row)
-        
-        # Build Inspector Table
-        inspector_data = []
-        
-        # Get Reference values for this specific node location
-        ref_fsi_val = 0.0
-        ref_bearing_val = 0.0
-        ref_bypass_val = 0.0
-        ref_fast_load = 0.0
-        
-        # Find in Reference Model
-        ref_node_obj = next((n for n in ref_sol.nodes if n.plate_name == target_key[0] and n.row == target_key[1]), None)
-        if ref_node_obj:
-            ref_bypass_val = abs(ref_node_obj.net_bypass)
-            ref_fatigue = next((r for r in ref_sol.fatigue_results if r.plate_name == target_key[0] and r.row == target_key[1]), None)
-            if ref_fatigue:
-                ref_fsi_val = ref_fatigue.fsi
-                ref_bearing_val = ref_fatigue.bearing_load
-            
-            ref_fast = next((f for f in ref_sol.fasteners if f.row == target_key[1]), None)
-            if ref_fast: ref_fast_load = abs(ref_fast.force)
-
-        # Helper to format value and delta
-        def fmt_val_delta(val, ref_val, is_ref):
-            if is_ref:
-                return f"{val:.2f}"
-            
-            if normalized:
-                delta = ((val - ref_val) / ref_val * 100) if abs(ref_val) > 1e-9 else 0.0
-                return f"{val:.2f} ({delta:+.1f}%)"
-            else:
-                delta = val - ref_val
-                return f"{val:.2f} ({delta:+.2f})"
-
-        for m in selected_models:
+    # Create columns for selectors if there are few models, otherwise list them
+    # Using columns for up to 3 models looks good
+    insp_cols = st.columns(min(len(selected_models), 3))
+    
+    for i, m in enumerate(selected_models):
+        col_idx = i % 3
+        with insp_cols[col_idx]:
             sol = solutions[m.model_id]
-            is_ref = (m.model_id == ref_model.model_id)
             
-            # Find corresponding node in this model
-            target_node = next((n for n in sol.nodes if n.plate_name == target_key[0] and n.row == target_key[1]), None)
-            
-            row = {"Model": m.label}
-            
-            if target_node:
-                # FSI
-                fsi_val = 0.0
-                fatigue = next((r for r in sol.fatigue_results if r.plate_name == target_key[0] and r.row == target_key[1]), None)
-                if fatigue: fsi_val = fatigue.fsi
-                row["FSI"] = fmt_val_delta(fsi_val, ref_fsi_val, is_ref)
-                
-                # Bearing
-                bearing_val = fatigue.bearing_load if fatigue else 0.0
-                row["Bearing"] = fmt_val_delta(bearing_val, ref_bearing_val, is_ref)
-                
-                # Bypass
-                bypass_val = abs(target_node.net_bypass)
-                row["Bypass"] = fmt_val_delta(bypass_val, ref_bypass_val, is_ref)
-                
-                # Fastener Load
-                fast_load = 0.0
-                fast = next((f for f in sol.fasteners if f.row == target_key[1]), None)
-                if fast: fast_load = abs(fast.force)
-                row["Fastener Load"] = fmt_val_delta(fast_load, ref_fast_load, is_ref)
-                
+            # Filter nodes based on target_element
+            if target_element == "All Elements":
+                nodes = sol.nodes
+                nodes.sort(key=lambda n: (n.plate_name, n.row))
+                options = [f"{n.plate_name} - Row {n.row}" for n in nodes]
+                node_map = {f"{n.plate_name} - Row {n.row}": n for n in nodes}
             else:
-                row["FSI"] = "N/A"
-                row["Bearing"] = "N/A"
-                row["Bypass"] = "N/A"
-                row["Fastener Load"] = "N/A"
-                
-            inspector_data.append(row)
+                nodes = [n for n in sol.nodes if n.plate_name == target_element]
+                nodes.sort(key=lambda n: n.row)
+                options = [f"Row {n.row}" for n in nodes]
+                node_map = {f"Row {n.row}": n for n in nodes}
             
-        # Apply Highlight Tolerance to Inspector Table
+            if options:
+                # Try to preserve selection if possible, or default to first
+                # We use a unique key for each selectbox
+                sel_lbl = st.selectbox(f"{m.label}", options, key=f"insp_node_sel_{m.model_id}")
+                selected_nodes_map[m.model_id] = node_map[sel_lbl]
+            else:
+                st.warning(f"No nodes in {m.label}")
+                selected_nodes_map[m.model_id] = None
+
+    # Build Inspector Table
+    inspector_data = []
+    
+    # Get Reference values from the node SELECTED for the reference model
+    ref_fsi_val = 0.0
+    ref_bearing_val = 0.0
+    ref_bypass_val = 0.0
+    ref_fast_load = 0.0
+    
+    ref_node_obj = selected_nodes_map.get(ref_model.model_id)
+    
+    if ref_node_obj:
+        ref_bypass_val = abs(ref_node_obj.net_bypass)
+        ref_sol = solutions[ref_model.model_id]
+        
+        # Find associated fatigue/fastener results for this node
+        # We need to look them up in the solution lists
+        ref_fatigue = next((r for r in ref_sol.fatigue_results if r.plate_name == ref_node_obj.plate_name and r.row == ref_node_obj.row), None)
+        if ref_fatigue:
+            ref_fsi_val = ref_fatigue.fsi
+            ref_bearing_val = ref_fatigue.bearing_load
+        
+        ref_fast = next((f for f in ref_sol.fasteners if f.row == ref_node_obj.row), None)
+        if ref_fast: ref_fast_load = abs(ref_fast.force)
+
+    # Helper to format value and delta
+    def fmt_val_delta(val, ref_val, is_ref):
+        if is_ref:
+            return f"{val:.2f}"
+        
+        if normalized:
+            delta = ((val - ref_val) / ref_val * 100) if abs(ref_val) > 1e-9 else 0.0
+            return f"{val:.2f} ({delta:+.1f}%)"
+        else:
+            delta = val - ref_val
+            return f"{val:.2f} ({delta:+.2f})"
+
+    for m in selected_models:
+        sol = solutions[m.model_id]
+        is_ref = (m.model_id == ref_model.model_id)
+        
+        # Get the node explicitly selected for this model
+        target_node = selected_nodes_map.get(m.model_id)
+        
+        row = {"Model": m.label}
+        
+        if target_node:
+            # Add Node Location info to the row for clarity
+            row["Node"] = f"{target_node.plate_name} @ {target_node.row}"
+
+            # FSI
+            fsi_val = 0.0
+            fatigue = next((r for r in sol.fatigue_results if r.plate_name == target_node.plate_name and r.row == target_node.row), None)
+            if fatigue: fsi_val = fatigue.fsi
+            row["FSI"] = fmt_val_delta(fsi_val, ref_fsi_val, is_ref)
+            
+            # Bearing
+            bearing_val = fatigue.bearing_load if fatigue else 0.0
+            row["Bearing"] = fmt_val_delta(bearing_val, ref_bearing_val, is_ref)
+            
+            # Bypass
+            bypass_val = abs(target_node.net_bypass)
+            row["Bypass"] = fmt_val_delta(bypass_val, ref_bypass_val, is_ref)
+            
+            # Fastener Load
+            fast_load = 0.0
+            fast = next((f for f in sol.fasteners if f.row == target_node.row), None)
+            if fast: fast_load = abs(fast.force)
+            row["Fastener Load"] = fmt_val_delta(fast_load, ref_fast_load, is_ref)
+            
+        else:
+            row["Node"] = "N/A"
+            row["FSI"] = "N/A"
+            row["Bearing"] = "N/A"
+            row["Bypass"] = "N/A"
+            row["Fastener Load"] = "N/A"
+            
+        inspector_data.append(row)
+        
+    # Apply Highlight Tolerance to Inspector Table
+    if inspector_data:
         df_insp = pd.DataFrame(inspector_data)
+        # Reorder columns to put Node right after Model
+        cols = ["Model", "Node", "FSI", "Bearing", "Bypass", "Fastener Load"]
+        # Ensure all cols exist
+        cols = [c for c in cols if c in df_insp.columns]
+        df_insp = df_insp[cols]
+        
         st.table(df_insp.style.map(highlight_high_delta))
-    else:
-        st.info(f"No nodes available for inspection in model '{insp_model.label}'.")
 
 
     # C. Charts
