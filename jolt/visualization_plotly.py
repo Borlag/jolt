@@ -203,6 +203,9 @@ def render_joint_diagram_plotly(
     # --- Fasteners ---
     fastener_plot_data: Dict[int, List[Tuple[int, FastenerResult, List[Tuple[float, float]]]]] = defaultdict(list)
     
+    # Track seen labels for legend control
+    seen_labels: Set[str] = set()
+
     for fast_idx, fastener in enumerate(fasteners):
         row_index = int(fastener.row)
         attachments: Dict[int, Tuple[float, float]] = {}
@@ -216,7 +219,20 @@ def render_joint_diagram_plotly(
         pairs = resolve_fastener_connections(fastener, plates)
         used_coords: List[Tuple[float, float]] = []
         
-        for top_idx, bottom_idx in pairs:
+        # Determine Label
+        label = fastener.name if fastener.name else f"F{fastener.row}"
+        
+        # Determine Marker Symbol (Plotly format)
+        symbol = fastener.marker_symbol if hasattr(fastener, "marker_symbol") else "circle"
+        
+        # Legend Logic
+        # Group by Label. Only show legend for the first time we see this label.
+        show_leg = label not in seen_labels
+        if show_leg:
+            seen_labels.add(label)
+
+        # Add Trace for the Fastener (Vertical Line)
+        for i, (top_idx, bottom_idx) in enumerate(pairs):
             coord_top = attachments.get(top_idx)
             coord_bottom = attachments.get(bottom_idx)
             if coord_top is None or coord_bottom is None:
@@ -225,27 +241,47 @@ def render_joint_diagram_plotly(
             x_val = coord_top[0]
             y_vals = [coord_top[1], coord_bottom[1]]
             
+            # Only the first segment of a fastener stack gets the legend entry (if it's the first time seeing this label)
+            # Actually, if we use legendgroup=label, clicking one toggles all with that label.
+            # So we set legendgroup=label for ALL segments of ALL fasteners with this name.
+            # And showlegend=True only for the VERY FIRST segment of the VERY FIRST fastener with this name.
+            
+            is_first_segment = (i == 0)
+            
             fig.add_trace(go.Scatter(
                 x=[x_val, x_val],
                 y=y_vals,
                 mode="lines+markers",
+                # Dashed purple line
                 line=dict(color="purple", width=2, dash="dash"),
-                marker=dict(size=6, color="purple"),
+                # Custom Marker
+                marker=dict(
+                    symbol=symbol, 
+                    size=10, 
+                    color="purple",
+                    line=dict(width=1, color="black") 
+                ),
                 opacity=base_opacity,
-                showlegend=False,
-                hoverinfo="skip"
+                name=label,          
+                showlegend=(show_leg and is_first_segment), 
+                legendgroup=label, # Group by Name
+                hoverinfo="text",
+                text=f"{label} (Row {row_index})"
             ))
             used_coords.extend([coord_top, coord_bottom])
 
+        # Annotation Label on the Diagram (Text next to the fastener)
         if used_coords:
             x_label = used_coords[0][0]
             y_label = max(pt[1] for pt in used_coords)
+            
             fig.add_annotation(
                 x=x_label,
                 y=y_label + 0.3 * vertical_spacing,
-                text=f"F{fastener.row}",
+                text=label,
                 showarrow=False,
-                font=dict(color="purple", size=font_size)
+                font=dict(color="purple", size=font_size),
+                bgcolor="rgba(255, 255, 255, 0.8)" # Add background for readability
             )
 
     # --- Supports ---

@@ -75,6 +75,10 @@ class FastenerRow:
     k_manual: Optional[float] = None
     connections: Optional[List[Tuple[int, int]]] = None
     
+    # Visual / ID attributes
+    name: str = ""  # User-defined label (e.g. "HL10-5")
+    marker_symbol: str = "circle"  # Visual style for the scheme
+    
     # Fatigue / Hole Configuration
     hole_centered: bool = True
     hole_offset: float = 0.0

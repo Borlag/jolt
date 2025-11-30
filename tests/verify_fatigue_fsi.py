@@ -50,9 +50,9 @@ def test_fsi_ranking():
     
     # Mock Bearing/Bypass
     sol.bearing_bypass = [
-        BearingBypassResult(row=1, plate_name="Plate1", bearing=500, bypass=1000),
-        BearingBypassResult(row=2, plate_name="Plate1", bearing=750, bypass=1500),
-        BearingBypassResult(row=1, plate_name="Plate2", bearing=500, bypass=1000),
+        BearingBypassResult(row=1, plate_name="Plate1", bearing=500, bypass=1000, flow_left=1500, flow_right=1000),
+        BearingBypassResult(row=2, plate_name="Plate1", bearing=750, bypass=1500, flow_left=2250, flow_right=1500),
+        BearingBypassResult(row=1, plate_name="Plate2", bearing=500, bypass=1000, flow_left=1500, flow_right=1000),
     ]
     
     # Run Calculation

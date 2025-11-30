@@ -661,8 +661,129 @@ def _render_fasteners_section(units: Dict[str, str]):
         "Hi-Lok": 0.75
     }
 
+    # --- Fastener Validation Logic ---
+    # 1. Check for Same Name but Different Markers
+    # 2. Check for Different Names but Same Markers (Warning only, maybe common)
+    
+    name_to_markers: Dict[str, Set[str]] = {}
+    marker_to_names: Dict[str, Set[str]] = {}
+    
+    for f in st.session_state.fasteners:
+        nm = f.name if f.name else f"F{f.row}" # Use fallback name if empty
+        mk = f.marker_symbol if hasattr(f, "marker_symbol") and f.marker_symbol else "circle"
+        
+        if nm not in name_to_markers: name_to_markers[nm] = set()
+        name_to_markers[nm].add(mk)
+        
+        if mk not in marker_to_names: marker_to_names[mk] = set()
+        marker_to_names[mk].add(nm)
+
+    # Validation: Combined Check
+    conflicts_name = [nm for nm, mks in name_to_markers.items() if len(mks) > 1]
+    conflicts_marker = [mk for mk, nms in marker_to_names.items() if len(nms) > 1]
+    
+    if conflicts_name or conflicts_marker:
+        msg = []
+        if conflicts_name:
+            msg.append(f"Inconsistent markers for names: {conflicts_name}.")
+        if conflicts_marker:
+            msg.append(f"Shared markers for different names: {conflicts_marker}.")
+            
+        st.warning(" ".join(msg))
+        
+        if st.button("Fix: Auto-assign Distinct Markers"):
+            # 1. Unify markers for same names (Priority)
+            for nm in conflicts_name:
+                counts = {}
+                for f in st.session_state.fasteners:
+                    fn = f.name if f.name else f"F{f.row}"
+                    if fn == nm:
+                        mk = f.marker_symbol if hasattr(f, "marker_symbol") else "circle"
+                        counts[mk] = counts.get(mk, 0) + 1
+                best_marker = max(counts, key=counts.get)
+                
+                for i, f in enumerate(st.session_state.fasteners):
+                    fn = f.name if f.name else f"F{f.row}"
+                    if fn == nm:
+                        f.marker_symbol = best_marker
+                        st.session_state.fasteners[i] = f
+            
+            # 2. Assign distinct markers for different names
+            # Re-evaluate mapping after unification
+            final_name_map = {}
+            for f in st.session_state.fasteners:
+                fn = f.name if f.name else f"F{f.row}"
+                final_name_map[fn] = f.marker_symbol
+            
+            available_symbols = [
+                "circle", "x", "diamond", "star", "square", "triangle-up", 
+                "triangle-down", "cross", "hexagon", "pentagon"
+            ]
+            
+            all_names = sorted(list(final_name_map.keys()))
+            new_map = {}
+            for i, nm in enumerate(all_names):
+                new_map[nm] = available_symbols[i % len(available_symbols)]
+                
+            for i, f in enumerate(st.session_state.fasteners):
+                fn = f.name if f.name else f"F{f.row}"
+                if fn in new_map:
+                    f.marker_symbol = new_map[fn]
+                    st.session_state.fasteners[i] = f
+            
+            # CRITICAL: Increment widget version to force UI refresh
+            st.session_state["_widget_version"] = st.session_state.get("_widget_version", 0) + 1
+            st.success("Markers auto-assigned!")
+            st.rerun()
+
     for idx, fastener in enumerate(st.session_state.fasteners):
+        # Patch for new fields if hot-reloading
+        if not hasattr(fastener, "name"):
+            fastener.name = ""
+        if not hasattr(fastener, "marker_symbol"):
+            fastener.marker_symbol = "circle"
+
         with st.expander(f"Fastener {idx + 1} — row {fastener.row}", expanded=(len(st.session_state.fasteners) <= 6)):
+            
+            # --- NEW VISUAL CONFIGURATION SECTION ---
+            c_name, c_sym = st.columns([3, 1])
+            
+            # 1. Fastener Name
+            fastener.name = c_name.text_input(
+                "Fastener Name / Label", 
+                value=fastener.name, 
+                key=f"fr_name_{idx}_v{st.session_state.get('_widget_version', 0)}",
+                placeholder=f"F{fastener.row}"
+            )
+            
+            # 2. Marker Symbol Selection
+            # Mapping readable names to internal Plotly symbols
+            symbol_options = {
+                "Bold Dot (●)": "circle",
+                "Cross (X)": "x", 
+                "Diamond (◆)": "diamond",
+                "Star (★)": "star", 
+                "Square (■)": "square",
+                "Triangle (▲)": "triangle-up"
+            }
+            
+            # Reverse lookup for default index
+            current_sym = fastener.marker_symbol or "circle"
+            # Handle legacy/default fallback
+            default_idx = 0
+            vals = list(symbol_options.values())
+            if current_sym in vals:
+                default_idx = vals.index(current_sym)
+            
+            selected_label = c_sym.selectbox(
+                "Marker", 
+                list(symbol_options.keys()), 
+                index=default_idx,
+                key=f"fr_sym_{idx}_v{st.session_state.get('_widget_version', 0)}"
+            )
+            fastener.marker_symbol = symbol_options[selected_label]
+            
+            st.markdown("---")
             c0, c1, c2, c3, c4 = st.columns([0.7, 0.8, 1.0, 0.7, 1.8])
             clamped_row = min(max(int(fastener.row), 1), max(n_rows, 1))
             fastener.row = int(
