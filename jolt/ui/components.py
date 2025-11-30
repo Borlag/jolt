@@ -10,7 +10,7 @@ import math
 from jolt import Plate, FastenerRow, JointSolution, JointConfiguration
 from jolt.units import UnitSystem, UnitConverter
 from .utils import available_fastener_pairs
-from .state import apply_configuration, clear_configuration_widget_state, serialize_configuration, convert_session_state
+from .state import apply_configuration, clear_configuration_widget_state, serialize_configuration, convert_session_state, safe_load_model
 
 _UPLOAD_DIGEST_KEY = "_cfg_upload_digest"
 
@@ -985,23 +985,23 @@ def _render_saved_configs_section():
         selected_idx = st.selectbox(
             "Available cases",
             indices,
-            format_func=lambda idx: saved_configs[idx]["label"],
+            format_func=lambda idx: saved_configs[idx].label,
             key="saved_config_select",
         )
         chosen = saved_configs[selected_idx]
         load_col, delete_col, export_col = st.columns([1, 1, 1])
         if load_col.button("Load", key="load_saved_config"):
             configuration = apply_configuration(chosen)
-            st.session_state["_last_loaded_config"] = configuration.label or chosen["label"]
+            st.session_state["_last_loaded_config"] = configuration.label or chosen.label
             st.session_state["_load_feedback"] = (
-                f"Loaded configuration '{configuration.label or chosen['label']}'."
+                f"Loaded configuration '{configuration.label or chosen.label}'."
             )
             st.rerun()
         if delete_col.button("Delete", key="delete_saved_config"):
             st.session_state.saved_models.pop(selected_idx)
             st.rerun()
-        export_data = json.dumps(chosen, indent=2).encode("utf-8")
-        export_name = chosen["label"].strip().replace(" ", "_") or "configuration"
+        export_data = json.dumps(chosen.to_dict(), indent=2).encode("utf-8")
+        export_name = chosen.label.strip().replace(" ", "_") or "configuration"
         export_col.download_button(
             "⬇️ Export",
             data=export_data,
@@ -1358,7 +1358,9 @@ def render_save_section(
     point_forces: Dict[int, float],
 ):
     st.markdown("---")
-    st.subheader("Save Configuration")
+    st.subheader("Save & Load Configuration")
+    
+    # --- SAVE SECTION ---
     c1, c2 = st.columns([3, 1], vertical_alignment="bottom")
     label = c1.text_input(
         "Label for this case",
@@ -1369,6 +1371,9 @@ def render_save_section(
         if not label:
             st.error("Please provide a label.")
         else:
+            # Get current solution if available
+            current_solution = st.session_state.get("solution")
+            
             config = serialize_configuration(
                 label=label,
                 pitches=pitches,
@@ -1377,13 +1382,15 @@ def render_save_section(
                 supports=supports,
                 unloading=st.session_state.get("config_unloading", ""),
                 point_forces=[],
+                solution=current_solution,
                 description=f"Saved on {pd.Timestamp.now()}" if pd is not None else "Saved configuration"
             )
             st.session_state.saved_models.append(config)
             st.success(f"Configuration '{label}' saved.")
             
             # Offer download immediately
-            json_str = json.dumps(config, indent=2)
+            # config is now a JointConfiguration object, so we use to_json() or to_dict()
+            json_str = config.to_json(indent=2)
             st.download_button(
                 label="⬇️ Download JSON",
                 data=json_str,
@@ -1391,3 +1398,27 @@ def render_save_section(
                 mime="application/json",
                 key=f"save_download_{pd.Timestamp.now().timestamp()}"
             )
+
+    # --- LOAD SECTION ---
+    st.markdown("#### Load Configuration")
+    uploaded_file = st.file_uploader("Upload JOLT JSON Model", type=["json"], key="model_uploader")
+    
+    if uploaded_file is not None:
+        # Check if this file was already processed to avoid re-processing on every rerun
+        # We use a hash of the file content or just the file ID if available. 
+        # Streamlit re-uploads on interaction, so we need to be careful not to duplicate.
+        # Simple approach: Button to "Import" after selection.
+        if st.button("Import Uploaded Model"):
+            config, error = safe_load_model(uploaded_file)
+            if error:
+                st.error(error)
+            elif config:
+                # Check for duplicates by ID
+                existing_ids = {m.model_id for m in st.session_state.saved_models}
+                if config.model_id in existing_ids:
+                    st.warning(f"Model '{config.label}' (ID: {config.model_id}) is already loaded.")
+                else:
+                    st.session_state.saved_models.append(config)
+                    st.success(f"Imported '{config.label}' successfully!")
+                    # Optional: Switch to this model immediately? 
+                    # The user might just want to compare. Let's just add it to saved_models.

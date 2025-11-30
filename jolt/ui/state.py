@@ -1,8 +1,9 @@
 """State management for the JOLT UI."""
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 from dataclasses import replace
+import json
 import streamlit as st
-from jolt import JointConfiguration, Plate, FastenerRow, figure76_example
+from jolt import JointConfiguration, Plate, FastenerRow, figure76_example, JointSolution
 from jolt.units import UnitSystem, UnitConverter
 
 
@@ -65,8 +66,9 @@ def serialize_configuration(
     label: str,
     unloading: str,
     point_forces: Optional[Sequence[Tuple[int, int, float]]] = None,
+    solution: Optional[JointSolution] = None,
     description: str = "",
-) -> Dict[str, Any]:
+) -> JointConfiguration:
     configuration = JointConfiguration(
         pitches=list(pitches),
         plates=list(plates),
@@ -81,7 +83,10 @@ def serialize_configuration(
         description=description,
         units=st.session_state.get("unit_system", UnitSystem.IMPERIAL),
     )
-    return configuration.to_dict()
+    if solution:
+        configuration.results = solution.to_dict()
+        
+    return configuration
 
 
 def apply_configuration(config: Union[Dict[str, Any], JointConfiguration]) -> JointConfiguration:
@@ -277,3 +282,20 @@ def initialize_session_state():
         st.session_state["_widget_version"] = 0
     if "unit_system" not in st.session_state:
         st.session_state.unit_system = UnitSystem.IMPERIAL
+
+
+def safe_load_model(source: Any) -> Tuple[Optional[JointConfiguration], str]:
+    """
+    Load a model safely from a JSON source (string or file-like), returning (config, error_message).
+    If successful, error_message is empty.
+    """
+    try:
+        config = JointConfiguration.from_json(source)
+        # Basic validation
+        if not config.pitches:
+             return None, "Model has no pitches defined."
+        return config, ""
+    except json.JSONDecodeError:
+        return None, "Invalid JSON format."
+    except Exception as e:
+        return None, f"Failed to load model: {str(e)}"

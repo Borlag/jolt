@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, IO, List, Optional, Sequence, Tuple, Union
 
-from .model import FastenerRow, Joint1D, Plate
+from .model import FastenerRow, Joint1D, Plate, JointSolution
+import uuid
 
 _DEFAULT_FASTENER_METHOD = "Boeing69"
 _FASTENER_METHOD_ALIASES = {
@@ -172,6 +173,9 @@ class JointConfiguration:
     unloading: str = ""
     description: str = ""
     units: str = "Imperial"
+    model_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    schema_version: int = 1
+    results: Optional[Dict[str, Any]] = None
 
     def build_model(self) -> Joint1D:
         """Create a :class:`Joint1D` model for this configuration."""
@@ -193,6 +197,13 @@ class JointConfiguration:
         }
         if self.point_forces:
             payload["point_forces"] = [list(item) for item in self.point_forces]
+        
+        # Persistence fields
+        payload["model_id"] = self.model_id
+        payload["schema_version"] = self.schema_version
+        if self.results:
+            payload["results"] = self.results
+            
         return payload
 
     def to_json(self, *, indent: Optional[int] = 2) -> str:
@@ -213,6 +224,16 @@ class JointConfiguration:
         unloading = str(data.get("unloading", ""))
         description = str(data.get("description", ""))
         units = str(data.get("units", "Imperial"))
+        units = str(data.get("units", "Imperial"))
+        
+        # Persistence fields with safe defaults
+        model_id = str(data.get("model_id", ""))
+        if not model_id:
+            model_id = str(uuid.uuid4())
+            
+        schema_version = int(data.get("schema_version", 1))
+        results = data.get("results")
+        
         return cls(
             pitches=pitches,
             plates=plates,
@@ -223,6 +244,9 @@ class JointConfiguration:
             unloading=unloading,
             description=description,
             units=units,
+            model_id=model_id,
+            schema_version=schema_version,
+            results=results
         )
 
     @classmethod

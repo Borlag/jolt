@@ -41,6 +41,10 @@ class FatigueResult:
     def as_dict(self) -> Dict[str, float]:
         return asdict(self)
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> FatigueResult:
+        return cls(**data)
+
 
 
 @dataclass
@@ -114,6 +118,10 @@ class FastenerResult:
     def as_dict(self) -> Dict[str, float]:
         return asdict(self)
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> FastenerResult:
+        return cls(**data)
+
 
 @dataclass
 class NodeResult:
@@ -133,6 +141,10 @@ class NodeResult:
     def as_dict(self) -> Dict[str, float]:
         return asdict(self)
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> NodeResult:
+        return cls(**data)
+
 
 @dataclass
 class BarResult:
@@ -145,6 +157,10 @@ class BarResult:
 
     def as_dict(self) -> Dict[str, float]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> BarResult:
+        return cls(**data)
 
 
 @dataclass
@@ -159,6 +175,10 @@ class BearingBypassResult:
     def as_dict(self) -> Dict[str, float]:
         return asdict(self)
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> BearingBypassResult:
+        return cls(**data)
+
 
 @dataclass
 class ReactionResult:
@@ -170,6 +190,10 @@ class ReactionResult:
 
     def as_dict(self) -> Dict[str, float]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> ReactionResult:
+        return cls(**data)
 
 
 @dataclass
@@ -533,8 +557,106 @@ class JointSolution:
             })
             
         results.sort(key=lambda x: (x["Element"], x["Node"]))
-            
         return results
+            
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize the solution to a dictionary."""
+        # Calculate summary metrics
+        max_fsi_global = 0.0
+        max_fsi_per_element = {}
+        max_fastener_load = 0.0
+        max_bypass = 0.0
+        max_displacement = 0.0
+        
+        if self.fatigue_results:
+            max_fsi_global = max((r.fsi for r in self.fatigue_results), default=0.0)
+            for r in self.fatigue_results:
+                if r.plate_name not in max_fsi_per_element:
+                    max_fsi_per_element[r.plate_name] = 0.0
+                max_fsi_per_element[r.plate_name] = max(max_fsi_per_element[r.plate_name], r.fsi)
+        
+        if self.fasteners:
+            max_fastener_load = max((abs(f.force) for f in self.fasteners), default=0.0)
+            
+        if self.nodes:
+            max_bypass = max((abs(n.net_bypass) for n in self.nodes), default=0.0)
+            max_displacement = max((abs(n.displacement) for n in self.nodes), default=0.0)
+
+        # Governing IDs
+        governing_element = None
+        if self.critical_points:
+            governing_element = self.critical_points[0].get("plate_name")
+
+        return {
+            "displacements": self.displacements,
+            "stiffness_matrix": self.stiffness_matrix,
+            "force_vector": self.force_vector,
+            "fasteners": [f.as_dict() for f in self.fasteners],
+            "bearing_bypass": [bb.as_dict() for bb in self.bearing_bypass],
+            "nodes": [n.as_dict() for n in self.nodes],
+            "bars": [b.as_dict() for b in self.bars],
+            "reactions": [r.as_dict() for r in self.reactions],
+            # We don't serialize dof_map keys as tuples directly to JSON, 
+            # but we can reconstruct it or store as string keys if needed.
+            # For now, let's store it as a list of items to be safe.
+            "dof_map_items": [[list(k), v] for k, v in self.dof_map.items()],
+            "plates": [p.name for p in self.plates], # Just names or full objects? 
+            # Ideally we rely on the input config for full plate defs, but storing names helps validation.
+            "applied_forces": self.applied_forces,
+            "fatigue_results": [fr.as_dict() for fr in self.fatigue_results],
+            "critical_points": self.critical_points,
+            "critical_node_id": self.critical_node_id,
+            "summary": {
+                "max_fsi_global": max_fsi_global,
+                "max_fsi_per_element": max_fsi_per_element,
+                "max_fastener_load": max_fastener_load,
+                "max_bypass": max_bypass,
+                "max_displacement": max_displacement,
+                "governing_element": governing_element,
+                "critical_node_id": self.critical_node_id
+            }
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> JointSolution:
+        """Rehydrate a JointSolution from a dictionary."""
+        
+        # Reconstruct DOF map
+        dof_map = {}
+        for k_list, v in data.get("dof_map_items", []):
+            if len(k_list) >= 2:
+                # Check if first element is "fastener" string or int
+                key_0 = k_list[0]
+                key_1 = k_list[1]
+                # JSON loads might make tuple keys into lists
+                dof_map[(key_0, key_1)] = v
+
+        # Note: We are NOT rehydrating the full 'plates' list here because 
+        # JointSolution usually holds references to the input Plate objects.
+        # However, for the purpose of the Comparison Module, we might need them 
+        # if we want to pass this solution to the plotter.
+        # The plotter uses `solution.plates` for some lookups?
+        # Checking `visualization_plotly.py`... it uses `plates` argument passed to the function,
+        # NOT `solution.plates`. `solution.plates` is used in `compute_fatigue_factors` though.
+        # So for pure results display, we might be fine without full Plate objects in solution,
+        # AS LONG AS we pass the rehydrated Plate objects from the Config to the plotter.
+        
+        return cls(
+            displacements=data.get("displacements", []),
+            stiffness_matrix=data.get("stiffness_matrix", []),
+            force_vector=data.get("force_vector", []),
+            fasteners=[FastenerResult.from_dict(f) for f in data.get("fasteners", [])],
+            bearing_bypass=[BearingBypassResult.from_dict(bb) for bb in data.get("bearing_bypass", [])],
+            nodes=[NodeResult.from_dict(n) for n in data.get("nodes", [])],
+            bars=[BarResult.from_dict(b) for b in data.get("bars", [])],
+            reactions=[ReactionResult.from_dict(r) for r in data.get("reactions", [])],
+            dof_map=dof_map,
+            plates=[], # Empty for now, will be filled by Config rehydration if needed?
+            applied_forces=data.get("applied_forces", []),
+            fatigue_results=[FatigueResult.from_dict(fr) for fr in data.get("fatigue_results", [])],
+            critical_points=data.get("critical_points", []),
+            critical_node_id=data.get("critical_node_id")
+        )
 
 
 class Joint1D:
