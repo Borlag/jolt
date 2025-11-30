@@ -17,6 +17,7 @@ from jolt.ui import (
     render_save_section,
     render_comparison_tab,
 )
+from jolt.ui.export_ui import render_export_tab
 
 
 st.set_page_config(page_title="JOLT 1D Joint", layout="wide")
@@ -30,7 +31,7 @@ pitches, plates, fasteners, supports, point_forces, units = render_sidebar()
 # Main content
 st.title("JOLT 1D Joint — Bars + Springs")
 
-tab1, tab2 = st.tabs(["Model Definition", "Model Comparison"])
+tab1, tab2, tab3 = st.tabs(["Model Definition", "Model Comparison", "Export / Reports"])
 
 with tab1:
     if st.button("Solve", type="primary"):
@@ -90,3 +91,6 @@ with tab1:
 
 with tab2:
     render_comparison_tab(st.session_state.saved_models, st.session_state.unit_system)
+
+with tab3:
+    render_export_tab(pitches, plates, fasteners, supports, point_forces, units)

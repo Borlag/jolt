@@ -17,7 +17,7 @@ from jolt import (
     JointSolution,
     Plate,
 )
-from jolt.ui.utils import resolve_fastener_connections
+
 
 
 def render_joint_diagram_plotly(
@@ -30,6 +30,7 @@ def render_joint_diagram_plotly(
     mode: str = "scheme",
     font_size: int = 10,
 ) -> Optional[go.Figure]:
+    from jolt.ui.utils import resolve_fastener_connections
     if go is None:
         return None
 

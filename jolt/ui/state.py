@@ -92,9 +92,12 @@ def serialize_configuration(
 
 
 def apply_configuration(config: Union[Dict[str, Any], JointConfiguration]) -> JointConfiguration:
-    configuration = (
-        config if isinstance(config, JointConfiguration) else JointConfiguration.from_dict(config)
-    )
+    # Handle case where config is already a JointConfiguration object
+    # We check for 'to_dict' method or if it's not a dict to be safe against class reloading issues
+    if isinstance(config, JointConfiguration) or hasattr(config, "to_dict"):
+        configuration = config
+    else:
+        configuration = JointConfiguration.from_dict(config)
     clear_configuration_widget_state()
     st.session_state.pitches = list(configuration.pitches)
     st.session_state.plates = deepcopy(list(configuration.plates))
