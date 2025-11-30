@@ -451,9 +451,21 @@ def render_comparison_tab(saved_models: List[JointConfiguration], current_units:
         )
         st.plotly_chart(fig_disp, width="stretch")
 
-    # D. Joint Diagrams (Grid Layout)
+    # --- 7. Diagram Selection ---
     st.subheader("Joint Diagrams")
     
+    diagram_types = ["Scheme", "Internal Loads", "Fatigue Analysis"]
+    selected_diagrams = st.multiselect(
+        "Select Diagrams to Display",
+        options=diagram_types,
+        default=diagram_types,
+        key="comparison_diagram_selector"
+    )
+    
+    if not selected_diagrams:
+        st.info("Select at least one diagram type to view.")
+        return
+
     n_models = len(selected_models)
     cols = 2 if n_models <= 4 else 3
     grid_cols = st.columns(cols)
@@ -469,28 +481,31 @@ def render_comparison_tab(saved_models: List[JointConfiguration], current_units:
                 sol = solutions[m.model_id]
                 
                 # 1. Scheme
-                st.caption("Scheme Overview")
-                fig_scheme = render_joint_diagram_plotly(
-                    pitches=m.pitches, plates=m.plates, fasteners=m.fasteners, supports=m.supports,
-                    solution=sol, units=unit_labels, mode="scheme", font_size=10
-                )
-                if fig_scheme: st.plotly_chart(fig_scheme, width="stretch", key=f"viz_scheme_{m.model_id}")
+                if "Scheme" in selected_diagrams:
+                    st.caption("Scheme Overview")
+                    fig_scheme = render_joint_diagram_plotly(
+                        pitches=m.pitches, plates=m.plates, fasteners=m.fasteners, supports=m.supports,
+                        solution=sol, units=unit_labels, mode="scheme", font_size=10
+                    )
+                    if fig_scheme: st.plotly_chart(fig_scheme, width="stretch", key=f"viz_scheme_{m.model_id}")
                 
                 # 2. Loads
-                st.caption("Internal Loads")
-                fig_load = render_joint_diagram_plotly(
-                    pitches=m.pitches, plates=m.plates, fasteners=m.fasteners, supports=m.supports,
-                    solution=sol, units=unit_labels, mode="loads", font_size=10
-                )
-                if fig_load: st.plotly_chart(fig_load, width="stretch", key=f"viz_load_{m.model_id}")
+                if "Internal Loads" in selected_diagrams:
+                    st.caption("Internal Loads")
+                    fig_load = render_joint_diagram_plotly(
+                        pitches=m.pitches, plates=m.plates, fasteners=m.fasteners, supports=m.supports,
+                        solution=sol, units=unit_labels, mode="loads", font_size=10
+                    )
+                    if fig_load: st.plotly_chart(fig_load, width="stretch", key=f"viz_load_{m.model_id}")
                 
                 # 3. Fatigue
-                st.caption("Fatigue Analysis")
-                fig_fatigue = render_joint_diagram_plotly(
-                    pitches=m.pitches, plates=m.plates, fasteners=m.fasteners, supports=m.supports,
-                    solution=sol, units=unit_labels, mode="fatigue", font_size=10
-                )
-                if fig_fatigue: st.plotly_chart(fig_fatigue, width="stretch", key=f"viz_fatigue_{m.model_id}")
+                if "Fatigue Analysis" in selected_diagrams:
+                    st.caption("Fatigue Analysis")
+                    fig_fatigue = render_joint_diagram_plotly(
+                        pitches=m.pitches, plates=m.plates, fasteners=m.fasteners, supports=m.supports,
+                        solution=sol, units=unit_labels, mode="fatigue", font_size=10
+                    )
+                    if fig_fatigue: st.plotly_chart(fig_fatigue, width="stretch", key=f"viz_fatigue_{m.model_id}")
 
 
 def _render_single_model_summary(model: JointConfiguration, current_units: str):

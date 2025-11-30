@@ -964,18 +964,49 @@ def _render_saved_configs_section():
         if st.session_state.get(_UPLOAD_DIGEST_KEY) != digest:
             try:
                 payload = json.loads(file_bytes.decode("utf-8"))
-                if not isinstance(payload, dict):
-                    raise ValueError("Top-level JSON entry must be an object")
-                configuration = JointConfiguration.from_dict(payload)
+                
+                loaded_configs = []
+                if isinstance(payload, list):
+                    # Bulk load
+                    for item in payload:
+                        if isinstance(item, dict):
+                            loaded_configs.append(JointConfiguration.from_dict(item))
+                elif isinstance(payload, dict):
+                    # Single load
+                    loaded_configs.append(JointConfiguration.from_dict(payload))
+                else:
+                    raise ValueError("JSON must be an object or a list of objects")
+                
+                if not loaded_configs:
+                    raise ValueError("No valid configurations found in JSON")
+
             except Exception as exc:
                 st.error(f"Failed to load configuration: {exc}")
             else:
                 display_name = getattr(uploaded_file, "name", "uploaded")
-                apply_configuration(configuration)
-                st.session_state["_last_loaded_config"] = configuration.label or display_name
-                st.session_state["_load_feedback"] = (
-                    f"Loaded configuration '{configuration.label or display_name}'."
-                )
+                
+                # Add all loaded configs to session state
+                existing_ids = {m.model_id for m in st.session_state.saved_models}
+                added_count = 0
+                for config in loaded_configs:
+                    if config.model_id not in existing_ids:
+                        st.session_state.saved_models.append(config)
+                        existing_ids.add(config.model_id)
+                        added_count += 1
+                
+                # Apply the first one if it's a single load, or just notify for bulk
+                if len(loaded_configs) == 1:
+                    config = loaded_configs[0]
+                    apply_configuration(config)
+                    st.session_state["_last_loaded_config"] = config.label or display_name
+                    st.session_state["_load_feedback"] = (
+                        f"Loaded configuration '{config.label or display_name}'."
+                    )
+                else:
+                    st.session_state["_load_feedback"] = (
+                        f"Imported {added_count} new configurations from '{display_name}'."
+                    )
+
                 st.session_state["_reset_cfg_upload"] = True
                 st.session_state[_UPLOAD_DIGEST_KEY] = digest
                 st.rerun()
@@ -1012,6 +1043,19 @@ def _render_saved_configs_section():
         )
         if "_last_loaded_config" in st.session_state:
             st.caption(f"Loaded: {st.session_state['_last_loaded_config']}")
+            
+        # --- EXPORT ALL ---
+        st.markdown("---")
+        if st.button("Export All Cases"):
+            all_cases_data = [m.to_dict() for m in saved_configs]
+            all_cases_json = json.dumps(all_cases_data, indent=2).encode("utf-8")
+            st.download_button(
+                "⬇️ Download All Cases (.json)",
+                data=all_cases_json,
+                file_name=f"jolt_all_cases_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json",
+                key="export_all_cases"
+            )
     else:
         st.info("No saved configurations yet. Save one after solving a case.")
 
@@ -1399,26 +1443,5 @@ def render_save_section(
                 key=f"save_download_{pd.Timestamp.now().timestamp()}"
             )
 
-    # --- LOAD SECTION ---
-    st.markdown("#### Load Configuration")
-    uploaded_file = st.file_uploader("Upload JOLT JSON Model", type=["json"], key="model_uploader")
-    
-    if uploaded_file is not None:
-        # Check if this file was already processed to avoid re-processing on every rerun
-        # We use a hash of the file content or just the file ID if available. 
-        # Streamlit re-uploads on interaction, so we need to be careful not to duplicate.
-        # Simple approach: Button to "Import" after selection.
-        if st.button("Import Uploaded Model"):
-            config, error = safe_load_model(uploaded_file)
-            if error:
-                st.error(error)
-            elif config:
-                # Check for duplicates by ID
-                existing_ids = {m.model_id for m in st.session_state.saved_models}
-                if config.model_id in existing_ids:
-                    st.warning(f"Model '{config.label}' (ID: {config.model_id}) is already loaded.")
-                else:
-                    st.session_state.saved_models.append(config)
-                    st.success(f"Imported '{config.label}' successfully!")
-                    # Optional: Switch to this model immediately? 
-                    # The user might just want to compare. Let's just add it to saved_models.
+    # --- LOAD SECTION REMOVED (Consolidated to Sidebar) ---
+
