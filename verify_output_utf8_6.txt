@@ -1,7 +1,0 @@
-﻿Verifying Refactoring...
-Legacy IDs verified.
-Node 1001 Net Bypass: 0.0
-Fastener Load: 999.9999999999992
-Total Bearing Load verified (Simple Case).
-Classic P0: Incoming=999.9999999999992, Bypass=0.0, Transfer=999.9999999999992
-Verification Script Finished.
