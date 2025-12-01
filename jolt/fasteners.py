@@ -16,7 +16,7 @@ from typing import Literal
 # COMPONENT METHODS (Calculate parts of compliance)
 # -----------------------------------------------------------------------------
 
-def boeing69_compliance(
+def boeing69_components(
     ti: float,
     Ei: float,
     tj: float,
@@ -32,8 +32,8 @@ def boeing69_compliance(
     bending_tj: float | None = None,
     bearing_ti: float | None = None,
     bearing_tj: float | None = None,
-) -> float:
-    """Return fastener compliance according to Boeing (1969) (D6-29942)."""
+) -> tuple[float, float, float]:
+    """Return shear, bending, and bearing compliance terms for Boeing (1969)."""
     if diameter <= 0: raise ValueError("Fastener diameter must be positive")
     if Eb <= 0: raise ValueError("Fastener modulus Eb must be positive")
 
@@ -59,9 +59,48 @@ def boeing69_compliance(
     tj_brg = bearing_tj if bearing_tj is not None else tj
     
     term_bearing = (
-        (1.0 / ti_brg) * (1.0/Eb + 1.0/Ei) + 
+        (1.0 / ti_brg) * (1.0/Eb + 1.0/Ei) +
         (1.0 / tj_brg) * (1.0/Eb + 1.0/Ej)
     ) / div
+
+    return term_shear, term_bending, term_bearing
+
+
+def boeing69_compliance(
+    ti: float,
+    Ei: float,
+    tj: float,
+    Ej: float,
+    Eb: float,
+    nu_b: float,
+    diameter: float,
+    *,
+    shear_planes: int = 1,
+    shear_ti: float | None = None,
+    shear_tj: float | None = None,
+    bending_ti: float | None = None,
+    bending_tj: float | None = None,
+    bearing_ti: float | None = None,
+    bearing_tj: float | None = None,
+) -> float:
+    """Return fastener compliance according to Boeing (1969) (D6-29942)."""
+
+    term_shear, term_bending, term_bearing = boeing69_components(
+        ti=ti,
+        Ei=Ei,
+        tj=tj,
+        Ej=Ej,
+        Eb=Eb,
+        nu_b=nu_b,
+        diameter=diameter,
+        shear_planes=shear_planes,
+        shear_ti=shear_ti,
+        shear_tj=shear_tj,
+        bending_ti=bending_ti,
+        bending_tj=bending_tj,
+        bearing_ti=bearing_ti,
+        bearing_tj=bearing_tj,
+    )
 
     return term_shear + term_bending + term_bearing
 
@@ -154,8 +193,9 @@ def morris_compliance(
     return tate_rosenfeld_compliance(t1, E1, t2, E2, Ef, diameter)
 
 __all__ = [
-    "boeing69_compliance", 
-    "huth_compliance", 
+    "boeing69_components",
+    "boeing69_compliance",
+    "huth_compliance",
     "grumman_compliance",
     "swift_douglas_compliance",
     "tate_rosenfeld_compliance",
