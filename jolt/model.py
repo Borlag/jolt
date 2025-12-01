@@ -6,11 +6,10 @@ import math
 from typing import Dict, List, Optional, Sequence, Tuple, Set, Any
 
 from .fasteners import (
-    boeing69_compliance,
-    boeing69_components,
-    huth_compliance,
-    grumman_compliance,
-    swift_douglas_compliance,
+    boeing69_compliance, 
+    huth_compliance, 
+    grumman_compliance, 
+    swift_douglas_compliance, 
     tate_rosenfeld_compliance,
     morris_compliance
 )
@@ -675,14 +674,12 @@ class Joint1D:
         self._x: Dict[Tuple[int, int], float] = {}
 
     def _calculate_compliance_pairwise(
-        self,
-        plate_i: Plate,
-        plate_j: Plate,
+        self, 
+        plate_i: Plate, 
+        plate_j: Plate, 
         fastener: FastenerRow,
         t_i: float,
-        t_j: float,
-        *,
-        connection_count: int = 1,
+        t_j: float
     ) -> float:
         """
         Calculates total compliance between two plates based on the selected method.
@@ -722,44 +719,13 @@ class Joint1D:
             return morris_compliance(t_i, plate_i.E, t_j, plate_j.E, fastener.Eb, fastener.D)
 
         # --- Component Methods (Boeing) ---
-        else:
-            # Boeing69 returns a component-style compliance that combines bolt
-            # shear/bending with plate bearing. For multi-interface stacks we
-            # split the shared bolt deformation between interfaces while
-            # keeping the plate bearing term local to each interface. This
-            # mirrors the physical picture of multiple shear planes acting in
-            # parallel on the same bolt core without introducing an arbitrary
-            # tuning factor.
-            shear, bending, bearing = boeing69_components(
+        else: 
+            return boeing69_compliance(
                 ti=t_i, Ei=plate_i.E,
                 tj=t_j, Ej=plate_j.E,
                 Eb=fastener.Eb, nu_b=fastener.nu_b,
-                diameter=fastener.D,
+                diameter=fastener.D
             )
-
-            return (shear + bending) / max(1, connection_count) + bearing
-
-
-    def _is_pairwise_method(self, method_key: str) -> bool:
-        """
-        Returns True when the fastener method represents a pairwise interface
-        compliance (empirical formulations such as Boeing69, Huth, etc.).
-
-        For these methods, the fastener is modeled as a direct spring between
-        two plate DOFs rather than a star topology with a central fastener node.
-        """
-        pairwise_tokens = [
-            "boeing",
-            "huth",
-            "grumman",
-            "swift",
-            "douglas",
-            "vought",
-            "tate",
-            "rosenfeld",
-            "morris",
-        ]
-        return any(token in method_key for token in pairwise_tokens)
 
 
     def _build_dofs(self) -> int:
@@ -777,14 +743,11 @@ class Joint1D:
                 self._dof[(plate_index, local_node)] = ndof
                 self._x[(plate_index, local_node)] = position
                 ndof += 1
-
+        
         for fastener in self.fasteners:
-            # Only allocate a central fastener DOF for non-pairwise methods.
-            method_key = fastener.method.lower()
-            if not self._is_pairwise_method(method_key):
-                self._dof[("fastener", fastener.row)] = ndof
-                ndof += 1
-
+            self._dof[("fastener", fastener.row)] = ndof
+            ndof += 1
+            
         return ndof
 
     def _plates_at_row(self, row_index: int) -> List[int]:
@@ -873,16 +836,11 @@ class Joint1D:
         plate_displacements = displacements[:plate_dof_count]
 
         bearing_forces: Dict[Tuple[int, int], float] = {}
-        for dof_i, dof_j, stiffness, row, plate_i_idx, plate_j_idx, is_pairwise in springs:
-            u_i = displacements[dof_i]
-            u_j = displacements[dof_j]
-            if is_pairwise and plate_j_idx is not None:
-                force_ij = stiffness * (u_j - u_i)
-                bearing_forces[(plate_i_idx, row)] = bearing_forces.get((plate_i_idx, row), 0.0) - force_ij
-                bearing_forces[(plate_j_idx, row)] = bearing_forces.get((plate_j_idx, row), 0.0) + force_ij
-            else:
-                force = stiffness * (u_j - u_i)
-                bearing_forces[(plate_i_idx, row)] = bearing_forces.get((plate_i_idx, row), 0.0) + force
+        for dof_plate, dof_fastener, stiffness, row, plate_idx, _ in springs:
+            u_plate = displacements[dof_plate]
+            u_fastener = displacements[dof_fastener]
+            force = stiffness * (u_fastener - u_plate)
+            bearing_forces[(plate_idx, row)] = bearing_forces.get((plate_idx, row), 0.0) + force
 
         fastener_results_list = []
         for fastener in self.fasteners:
@@ -915,14 +873,7 @@ class Joint1D:
                     if 0 <= s2 < len(plate_obj_j.thicknesses):
                         t2 = plate_obj_j.thicknesses[s2]
 
-                comp = self._calculate_compliance_pairwise(
-                    plate_obj_i,
-                    plate_obj_j,
-                    fastener,
-                    t1,
-                    t2,
-                    connection_count=len(connection_pairs),
-                )
+                comp = self._calculate_compliance_pairwise(plate_obj_i, plate_obj_j, fastener, t1, t2)
                 stiff = 1.0 / comp if comp > 0 else 1e12
 
                 fastener_results_list.append(FastenerResult(
@@ -1108,14 +1059,7 @@ class Joint1D:
         self,
         supports: Sequence[Tuple[int, int, float]],
         point_forces: Sequence[Tuple[int, int, float]],
-    ) -> Tuple[
-        List[List[float]],
-        List[float],
-        List[Tuple[int, int, float, int, int, Optional[int], bool]],
-        List[Tuple[int, int, float]],
-        List[Tuple[int, int, float]],
-        int,
-    ]:
+    ) -> Tuple[List[List[float]], List[float], List[Tuple[int, int, float, int, int, float]], List[Tuple[int, int, float]], List[Tuple[int, int, float]], int]:
         point_forces = point_forces or []
         ndof = self._build_dofs()
 
@@ -1169,18 +1113,19 @@ class Joint1D:
             force_vector[self._dof[(plate_index, 0)]] += plate.Fx_left
             force_vector[self._dof[(plate_index, segments)]] += plate.Fx_right
 
-        springs: List[Tuple[int, int, float, int, int, Optional[int], bool]] = []
+        springs: List[Tuple[int, int, float, int, int, float]] = []
 
         for fastener in self.fasteners:
             row_index = fastener.row
             plates_at_row, connection_pairs = self._plates_and_pairs(fastener)
             if not plates_at_row:
                 continue
+            dof_fastener = self._dof[("fastener", row_index)]
             method_key = fastener.method.lower()
-            is_pairwise = self._is_pairwise_method(method_key)
+            is_empirical = any(k in method_key for k in ["huth", "grumman", "swift", "douglas", "vought", "tate", "rosenfeld", "morris"])
 
             plate_lookup = {idx: plate for idx, plate in plates_at_row}
-            if is_pairwise:
+            if is_empirical:
                 for idx_1, idx_2 in connection_pairs:
                     plate_1 = plate_lookup[idx_1]
                     plate_2 = plate_lookup[idx_2]
@@ -1199,31 +1144,31 @@ class Joint1D:
                         if 0 <= s2 < len(plate_2.thicknesses):
                             t2 = plate_2.thicknesses[s2]
 
-                    compliance = self._calculate_compliance_pairwise(
-                        plate_1,
-                        plate_2,
-                        fastener,
-                        t1,
-                        t2,
-                        connection_count=len(connection_pairs),
-                    )
-                    stiffness_total = 1.0 / max(compliance, 1e-12)
+                    compliance = self._calculate_compliance_pairwise(plate_1, plate_2, fastener, t1, t2)
+                    if compliance <= 1e-12:
+                        compliance = 1e-12
+
+                    stiffness_total = 1.0 / compliance
+                    node_stiffness = stiffness_total * 2.0
 
                     local_node_1 = row_index - plate_1.first_row
-                    local_node_2 = row_index - plate_2.first_row
                     dof_1 = self._dof.get((idx_1, local_node_1))
+                    if dof_1 is not None:
+                        springs.append((dof_1, dof_fastener, node_stiffness, row_index, idx_1, compliance / 2.0))
+                        stiffness_matrix[dof_1][dof_1] += node_stiffness
+                        stiffness_matrix[dof_1][dof_fastener] -= node_stiffness
+                        stiffness_matrix[dof_fastener][dof_1] -= node_stiffness
+                        stiffness_matrix[dof_fastener][dof_fastener] += node_stiffness
+
+                    local_node_2 = row_index - plate_2.first_row
                     dof_2 = self._dof.get((idx_2, local_node_2))
-                    if dof_1 is None or dof_2 is None:
-                        continue
-
-                    springs.append((dof_1, dof_2, stiffness_total, row_index, idx_1, idx_2, True))
-
-                    stiffness_matrix[dof_1][dof_1] += stiffness_total
-                    stiffness_matrix[dof_2][dof_2] += stiffness_total
-                    stiffness_matrix[dof_1][dof_2] -= stiffness_total
-                    stiffness_matrix[dof_2][dof_1] -= stiffness_total
+                    if dof_2 is not None:
+                        springs.append((dof_2, dof_fastener, node_stiffness, row_index, idx_2, compliance / 2.0))
+                        stiffness_matrix[dof_2][dof_2] += node_stiffness
+                        stiffness_matrix[dof_2][dof_fastener] -= node_stiffness
+                        stiffness_matrix[dof_fastener][dof_2] -= node_stiffness
+                        stiffness_matrix[dof_fastener][dof_fastener] += node_stiffness
             else:
-                dof_fastener = self._dof[("fastener", row_index)]
                 plate_compliances = {}
                 for plate_idx, plate in plates_at_row:
                     local_node = row_index - plate.first_row
@@ -1236,15 +1181,56 @@ class Joint1D:
                     compliance, _ = self._calculate_single_stiffness(plate, fastener, t_local)
                     plate_compliances[plate_idx] = compliance
 
+                if len(plates_at_row) > 1 and "boeing" in fastener.method.lower():
+                    I_b = math.pi * (fastener.D / 2.0) ** 4 / 4.0
+                    factor = 5.0 / (40.0 * fastener.Eb * I_b)
+
+                    for i in range(len(plates_at_row) - 1):
+                        p_idx_1, plate_1 = plates_at_row[i]
+                        p_idx_2, plate_2 = plates_at_row[i + 1]
+
+                        t1_local = plate_1.t
+                        if plate_1.thicknesses:
+                            ln1 = row_index - plate_1.first_row
+                            s1 = ln1 if ln1 < len(plate_1.thicknesses) else ln1 - 1
+                            if 0 <= s1 < len(plate_1.thicknesses):
+                                t1_local = plate_1.thicknesses[s1]
+
+                        t2_local = plate_2.t
+                        if plate_2.thicknesses:
+                            ln2 = row_index - plate_2.first_row
+                            s2 = ln2 if ln2 < len(plate_2.thicknesses) else ln2 - 1
+                            if 0 <= s2 < len(plate_2.thicknesses):
+                                t2_local = plate_2.thicknesses[s2]
+
+                        t1_bend = min(t1_local, fastener.D)
+                        t2_bend = min(t2_local, fastener.D)
+
+                        excess_compliance = factor * (t1_bend - t2_bend) ** 2 * (t1_bend + t2_bend)
+
+                        is_first_pair = (i == 0)
+                        is_last_pair = (i == len(plates_at_row) - 2)
+
+                        if is_first_pair:
+                            plate_compliances[p_idx_1] -= excess_compliance
+                        elif is_last_pair:
+                            plate_compliances[p_idx_2] -= excess_compliance
+                        else:
+                            plate_compliances[p_idx_1] -= excess_compliance / 2.0
+                            plate_compliances[p_idx_2] -= excess_compliance / 2.0
+
                 for plate_idx, plate in plates_at_row:
                     compliance = plate_compliances[plate_idx]
-                    stiffness = 1.0 / max(compliance, 1e-12)
+                    if compliance <= 1e-12:
+                        compliance = 1e-12
+
+                    stiffness = 1.0 / compliance
 
                     local_node = row_index - plate.first_row
                     dof_plate = self._dof.get((plate_idx, local_node))
 
                     if dof_plate is not None:
-                        springs.append((dof_plate, dof_fastener, stiffness, row_index, plate_idx, None, False))
+                        springs.append((dof_plate, dof_fastener, stiffness, row_index, plate_idx, compliance))
                         stiffness_matrix[dof_plate][dof_plate] += stiffness
                         stiffness_matrix[dof_plate][dof_fastener] -= stiffness
                         stiffness_matrix[dof_fastener][dof_plate] -= stiffness
