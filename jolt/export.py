@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 import xlsxwriter
 from jolt import JointConfiguration, JointSolution, Plate, FastenerRow
 from jolt.units import UnitConverter, UnitSystem
+import plotly.graph_objects as go
 from jolt.visualization_plotly import render_joint_diagram_plotly
 
 # Constants for image sizing
@@ -158,6 +159,67 @@ class JoltExcelExporter:
         except Exception as e:
             ws.write(row, col, f"Error generating image '{title}': {str(e)}")
             return 2
+
+    def _generate_distribution_chart(self, models: List[JointConfiguration], solutions: Dict[str, JointSolution], 
+                                     mode: str, title: str, y_axis_label: str) -> Optional[go.Figure]:
+        """Generates a grouped bar chart for comparison."""
+        fig = go.Figure()
+        all_y = []
+        
+        # Use a simple color cycle
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b']
+        
+        for i, m in enumerate(models):
+            if m.model_id not in solutions: continue
+            sol = solutions[m.model_id]
+            color = colors[i % len(colors)]
+            
+            x_vals = []
+            y_vals = []
+            
+            if mode == "fsi":
+                # FSI (All Elements)
+                if sol.fatigue_results:
+                    res = sorted(sol.fatigue_results, key=lambda r: (r.plate_name, r.row))
+                    x_vals = [f"{r.plate_name}-{r.row}" for r in res]
+                    y_vals = [r.fsi for r in res]
+            
+            elif mode == "loads":
+                # Fastener Loads
+                fasteners = sorted(sol.fasteners, key=lambda f: f.row)
+                x_vals = [f"Row {f.row}" for f in fasteners]
+                y_vals = [abs(f.force) for f in fasteners]
+                
+            elif mode == "bypass":
+                # Bypass Loads (All Elements)
+                nodes = sorted(sol.nodes, key=lambda n: (n.plate_name, n.row))
+                x_vals = [f"{n.plate_name}-{n.row}" for n in nodes]
+                y_vals = [abs(n.net_bypass) for n in nodes]
+                
+            elif mode == "disp":
+                # Displacements (All Elements)
+                nodes = sorted(sol.nodes, key=lambda n: (n.plate_name, n.row))
+                x_vals = [f"{n.plate_name}-{n.row}" for n in nodes]
+                y_vals = [n.displacement for n in nodes]
+
+            if x_vals and y_vals:
+                all_y.extend(y_vals)
+                fig.add_trace(go.Bar(
+                    x=x_vals, y=y_vals, name=m.label, marker_color=color,
+                    opacity=0.8
+                ))
+        
+        if not all_y:
+            return None
+            
+        fig.update_layout(
+            title=title,
+            xaxis_title="Location",
+            yaxis_title=y_axis_label,
+            barmode='group',
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        return fig
 
     def export_model(self, model: JointConfiguration, options: Dict[str, Any]):
         # Sanitize sheet name
@@ -315,7 +377,7 @@ class JoltExcelExporter:
                     )
                     curr_row += rows_used
 
-    def export_comparison(self, selected_models: List[JointConfiguration]):
+    def export_comparison(self, selected_models: List[JointConfiguration], options: Dict[str, Any] = {}):
         ws = self.workbook.add_worksheet("Comparison")
         ws.write(0, 0, "Model Comparison Matrix", self.fmt_header_main)
         ws.write(1, 0, f"Date: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
@@ -424,3 +486,30 @@ class JoltExcelExporter:
                 max_rows_in_strip = max(max_rows_in_strip, rows_used)
             
             curr_row += max_rows_in_strip + 1 # Add spacing between strips
+
+        # 5. Distribution Charts
+        dist_charts = []
+        if options.get("comp_dist_fsi", False): 
+            dist_charts.append(("fsi", "FSI Distribution", "FSI"))
+        if options.get("comp_dist_loads", False): 
+            dist_charts.append(("loads", "Fastener Load Distribution", f"Load [{self.labels['force']}]"))
+        if options.get("comp_dist_bypass", False): 
+            dist_charts.append(("bypass", "Bypass Load Distribution", f"Bypass [{self.labels['force']}]"))
+        if options.get("comp_dist_disp", False): 
+            dist_charts.append(("disp", "Displacement Distribution", f"Displacement [{self.labels['length']}]"))
+            
+        if dist_charts:
+            # Ensure we are below any existing content
+            if ws.dim_rowmax is not None:
+                curr_row = max(curr_row, ws.dim_rowmax + 2)
+
+            ws.write(curr_row, 0, "Distribution Analysis", self.fmt_header_main)
+            curr_row += 2
+            
+            for mode, title, y_label in dist_charts:
+                fig = self._generate_distribution_chart(selected_models, solutions, mode, title, y_label)
+                if fig:
+                    rows_used = self._insert_image_with_caption(
+                        ws, curr_row, 0, title, fig, scale=0.8 # Slightly larger for charts
+                    )
+                    curr_row += rows_used

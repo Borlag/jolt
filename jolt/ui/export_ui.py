@@ -65,6 +65,21 @@ def render_export_tab(pitches, plates, fasteners, supports, point_forces, units)
 
         st.markdown("**Comparison**")
         include_comparison = st.checkbox("Include Comparison Sheet", value=True, disabled=(len(selected_indices) < 2), key="exp_include_comparison")
+        
+        comp_dist_fsi = False
+        comp_dist_loads = False
+        comp_dist_bypass = False
+        comp_dist_disp = False
+        
+        if include_comparison:
+             st.caption("Comparison Distribution Charts")
+             c_cd1, c_cd2 = st.columns(2)
+             with c_cd1:
+                 comp_dist_fsi = st.checkbox("FSI Dist.", value=True, key="exp_comp_fsi")
+                 comp_dist_loads = st.checkbox("Load Dist.", value=True, key="exp_comp_loads")
+             with c_cd2:
+                 comp_dist_bypass = st.checkbox("Bypass Dist.", value=False, key="exp_comp_bypass")
+                 comp_dist_disp = st.checkbox("Disp. Dist.", value=False, key="exp_comp_disp")
 
         st.markdown("---")
         st.subheader("3. Generate")
@@ -91,7 +106,12 @@ def render_export_tab(pitches, plates, fasteners, supports, point_forces, units)
                             "img_loads": img_loads,
                             "img_disp": img_disp,
                             "img_fatigue": img_fatigue,
-                            "label_spacing": label_spacing
+                            "label_spacing": label_spacing,
+                            # Comparison Options
+                            "comp_dist_fsi": comp_dist_fsi,
+                            "comp_dist_loads": comp_dist_loads,
+                            "comp_dist_bypass": comp_dist_bypass,
+                            "comp_dist_disp": comp_dist_disp
                         }
                         
                         exporter = JoltExcelExporter(target_models, st.session_state.unit_system)
@@ -100,7 +120,7 @@ def render_export_tab(pitches, plates, fasteners, supports, point_forces, units)
                             exporter.export_model(m, options)
                             
                         if include_comparison and len(target_models) > 1:
-                            exporter.export_comparison(target_models)
+                            exporter.export_comparison(target_models, options)
                             
                         excel_data = exporter.close()
                         
