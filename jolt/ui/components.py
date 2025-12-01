@@ -490,6 +490,7 @@ def _render_plates_section(units: Dict[str, str]):
 
 def _render_fasteners_section(units: Dict[str, str]):
     n_rows = len(st.session_state.pitches)
+    layer_names = [p.name for p in st.session_state.plates]
     fcols = st.columns([1, 3])
     with fcols[0]:
         if st.button("➕ Add fastener"):
@@ -562,7 +563,6 @@ def _render_fasteners_section(units: Dict[str, str]):
             b_cs_affects_bypass = bcs4.checkbox("Affects Bypass Area", value=False, help="If checked, reduces gross area for bypass stress calculation.", key=f"bulk_csab_v{st.session_state.get('_widget_version', 0)}")
             
             # Collect all layer names for dropdowns
-            layer_names = [p.name for p in st.session_state.plates]
             b_cs_layers = bcs5.multiselect("CS Layers", options=layer_names, key=f"bulk_csl_v{st.session_state.get('_widget_version', 0)}")
 
         # Bulk Fatigue Factors

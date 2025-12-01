@@ -362,7 +362,7 @@ def render_comparison_tab(saved_models: List[JointConfiguration], current_units:
             barmode='group',
             title=f"FSI Distribution ({target_element})",
         )
-        st.plotly_chart(fig_fsi, width="stretch")
+        st.plotly_chart(fig_fsi, use_container_width=True)
 
     # Load Chart
     if show_loads:
@@ -392,7 +392,7 @@ def render_comparison_tab(saved_models: List[JointConfiguration], current_units:
             barmode='group',
             title="Fastener Loads"
         )
-        st.plotly_chart(fig_load, width="stretch")
+        st.plotly_chart(fig_load, use_container_width=True)
 
     # Bypass Chart
     if show_bypass:
@@ -429,7 +429,7 @@ def render_comparison_tab(saved_models: List[JointConfiguration], current_units:
             barmode='group',
             title=f"Bypass Loads ({target_element})"
         )
-        st.plotly_chart(fig_bypass, width="stretch")
+        st.plotly_chart(fig_bypass, use_container_width=True)
 
     # Displacement Chart
     if show_disp:
@@ -466,7 +466,7 @@ def render_comparison_tab(saved_models: List[JointConfiguration], current_units:
             barmode='group',
             title=f"Displacement ({target_element})"
         )
-        st.plotly_chart(fig_disp, width="stretch")
+        st.plotly_chart(fig_disp, use_container_width=True)
 
     # --- 7. Diagram Selection ---
     st.subheader("Joint Diagrams")
@@ -504,7 +504,7 @@ def render_comparison_tab(saved_models: List[JointConfiguration], current_units:
                         pitches=m.pitches, plates=m.plates, fasteners=m.fasteners, supports=m.supports,
                         solution=sol, units=unit_labels, mode="scheme", font_size=10
                     )
-                    if fig_scheme: st.plotly_chart(fig_scheme, width="stretch", key=f"viz_scheme_{m.model_id}")
+                    if fig_scheme: st.plotly_chart(fig_scheme, use_container_width=True, key=f"viz_scheme_{m.model_id}")
                 
                 # 2. Loads
                 if "Internal Loads" in selected_diagrams:
@@ -513,7 +513,7 @@ def render_comparison_tab(saved_models: List[JointConfiguration], current_units:
                         pitches=m.pitches, plates=m.plates, fasteners=m.fasteners, supports=m.supports,
                         solution=sol, units=unit_labels, mode="loads", font_size=10
                     )
-                    if fig_load: st.plotly_chart(fig_load, width="stretch", key=f"viz_load_{m.model_id}")
+                    if fig_load: st.plotly_chart(fig_load, use_container_width=True, key=f"viz_load_{m.model_id}")
                 
                 # 3. Fatigue
                 if "Fatigue Analysis" in selected_diagrams:
@@ -522,7 +522,7 @@ def render_comparison_tab(saved_models: List[JointConfiguration], current_units:
                         pitches=m.pitches, plates=m.plates, fasteners=m.fasteners, supports=m.supports,
                         solution=sol, units=unit_labels, mode="fatigue", font_size=10
                     )
-                    if fig_fatigue: st.plotly_chart(fig_fatigue, width="stretch", key=f"viz_fatigue_{m.model_id}")
+                    if fig_fatigue: st.plotly_chart(fig_fatigue, use_container_width=True, key=f"viz_fatigue_{m.model_id}")
 
 
 def _render_single_model_summary(model: JointConfiguration, current_units: str):
