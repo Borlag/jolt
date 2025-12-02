@@ -816,15 +816,23 @@ class Joint1D:
         
         # 1. Calculate Base Compliances (Prior)
         base_compliances = []
+        is_boeing = "boeing" in fastener.method.lower()
+
         for plate in plates:
-            t_local = plate.t
-            if plate.thicknesses:
-                ln = row_index - plate.first_row
-                s = ln if ln < len(plate.thicknesses) else ln - 1
-                if 0 <= s < len(plate.thicknesses):
-                    t_local = plate.thicknesses[s]
-            
-            base_compliances.append(self._calculate_base_compliance(plate, fastener, t_local))
+            if is_boeing:
+                # Boeing Method: Pure minimal-norm solution (Prior = 0)
+                # No legacy single-plate physics should influence the distribution.
+                base_compliances.append(0.0)
+            else:
+                # Legacy/Other Methods: Use single-plate model as prior
+                t_local = plate.t
+                if plate.thicknesses:
+                    ln = row_index - plate.first_row
+                    s = ln if ln < len(plate.thicknesses) else ln - 1
+                    if 0 <= s < len(plate.thicknesses):
+                        t_local = plate.thicknesses[s]
+                
+                base_compliances.append(self._calculate_base_compliance(plate, fastener, t_local))
             
         # 2. Construct Linear System for Lagrange Multipliers (lambda)
         # Matrix M = AA^T (Size n_pairs x n_pairs)
@@ -864,7 +872,19 @@ class Joint1D:
         for i in range(1, n_branches - 1):
             final_compliances[i] -= (lambdas[i-1] + lambdas[i])
         final_compliances[-1] -= lambdas[-1]
-                
+
+        # 5. Post-processing for Boeing (Check for negative values)
+        if is_boeing:
+            for i, c in enumerate(final_compliances):
+                if c < -1e-10:
+                    raise ValueError(
+                        f"Inconsistent Boeing pairwise compliances resulting in negative branch compliance at index {i} (C={c}). "
+                        "This indicates physically impossible pairwise constraints."
+                    )
+                elif c < 0.0:
+                    # Numerical noise (between -1e-10 and 0)
+                    final_compliances[i] = 0.0
+        
         return final_compliances
 
     def solve(

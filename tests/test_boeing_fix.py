@@ -74,7 +74,9 @@ class TestBoeingFix(unittest.TestCase):
         for res in results:
             actual.append(abs(res.force))
             
-        expected = [364.8, 538.4, 371.0, 461.8, 284.3]
+        # Updated expected values for Pure Boeing (Minimal Norm) model
+        # Previous values (Hybrid): [364.8, 538.4, 371.0, 461.8, 284.3]
+        expected = [392.7, 543.2, 390.4, 456.8, 216.9]
         
         print(f"\nActual Shear Forces: {actual}")
         print(f"Expected Shear Forces: {expected}")
