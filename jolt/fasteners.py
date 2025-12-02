@@ -62,7 +62,7 @@ def boeing69_compliance(
         (1.0 / ti_brg) * (1.0/Eb + 1.0/Ei) + 
         (1.0 / tj_brg) * (1.0/Eb + 1.0/Ej)
     ) / div
-
+    print (term_shear + term_bending + term_bearing)
     return term_shear + term_bending + term_bearing
 
 # -----------------------------------------------------------------------------

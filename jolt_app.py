@@ -76,7 +76,7 @@ with tab1:
                     )
                     if fig:
                         # config={'editable': True} enables dragging annotations (text)
-                        st.plotly_chart(fig, use_container_width=True, config={'editable': True, 'scrollZoom': True})
+                        st.plotly_chart(fig, width="stretch", config={'editable': True, 'scrollZoom': True})
                     else:
                         st.error("Failed to render Plotly figure.")
         else:
