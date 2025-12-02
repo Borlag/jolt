@@ -34,7 +34,6 @@ class FatigueResult:
     term_bypass: float
     peak_stress: float = 0.0
     fsi: float = 0.0
-    fsi: float = 0.0
     f_max: Optional[float] = None
     incoming_load: float = 0.0
 
@@ -320,7 +319,7 @@ class JointSolution:
             if f_max and f_max > 0:
                 fsi = peak_stress / f_max
             else:
-                fsi = peak_stress # Fallback if no strength defined
+                fsi = 0.0 # No fatigue strength defined, cannot calculate FSI
 
             f_res = FatigueResult(
                 node_id=node.legacy_id,
@@ -777,30 +776,29 @@ class Joint1D:
         present.sort()
         return present
 
-    def _calculate_base_compliance(self, plate: Plate, fastener: FastenerRow, t_local: Optional[float] = None) -> float:
-        """
-        Calculate the 'Base' (Single) compliance of a plate branch.
-        Used as the starting point for the Boeing decomposition.
-        """
-        t = t_local if t_local is not None else plate.t
+    # def _calculate_base_compliance(self, plate: Plate, fastener: FastenerRow, t_local: Optional[float] = None) -> float:
+    #     """
+    #     Calculate the 'Base' (Single) compliance of a plate branch.
+    #     Used as the starting point for the Boeing decomposition.
+    #     """
+    #     t = t_local if t_local is not None else plate.t
         
-        # Constants
-        A_b = math.pi * (fastener.D / 2.0) ** 2
-        I_b = math.pi * (fastener.D / 2.0) ** 4 / 4.0
-        G_b = fastener.Eb / (2.0 * (1.0 + fastener.nu_b))
+    #     # Constants
+    #     A_b = math.pi * (fastener.D / 2.0) ** 2
+    #     I_b = math.pi * (fastener.D / 2.0) ** 4 / 4.0
+    #     G_b = fastener.Eb / (2.0 * (1.0 + fastener.nu_b))
         
-        # Shear Term (Boeing Single Model uses t_shear = min(t, (D+t)/2))
-        t_shear = min(t, (fastener.D + t) / 2.0)
-        C_shear = (4.0 * t_shear) / (9.0 * G_b * A_b)
+    #     # Shear Term (Boeing Single Model uses t_shear = min(t, (D+t)/2))
+    #     t_shear = min(t, (fastener.D + t) / 2.0)
+    #     C_shear = (4.0 * t_shear) / (9.0 * G_b * A_b)
         
-        # Bending Term (Boeing Single Model uses t_bending = min(t, D))
-        t_bending = min(t, fastener.D)
-        C_bending = (6.0 * t_bending**3) / (40.0 * fastener.Eb * I_b)
+    #     # Bending Term (Boeing Single Model uses t_bending = min(t, D))
+    #     t_bending = min(t, fastener.D)
+    #     C_bending = (6.0 * t_bending**3) / (40.0 * fastener.Eb * I_b)
         
-        # Bearing Term
-        C_bearing = (1.0 / t) * (1.0 / fastener.Eb + 1.0 / plate.E)
-        print (C_shear + C_bending + C_bearing)
-        return C_shear + C_bending + C_bearing
+    #     # Bearing Term
+    #     C_bearing = (1.0 / t) * (1.0 / fastener.Eb + 1.0 / plate.E)
+    #     return C_shear + C_bending + C_bearing
 
     def _solve_branch_compliances(self, plates: List[Plate], fastener: FastenerRow, row_index: int, pairwise_compliances: List[float]) -> List[float]:
         """
@@ -1281,7 +1279,6 @@ class Joint1D:
             
             # --- PATH A: Pairwise (Chain) ---
             if self._is_pairwise_method(fastener):
-                print(f"PAIRWISE ACTIVE for Row {row_index}")
                 for idx_1, idx_2 in connection_pairs:
                     plate_1 = plate_lookup[idx_1]
                     plate_2 = plate_lookup[idx_2]
