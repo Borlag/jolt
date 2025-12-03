@@ -241,13 +241,15 @@ def process_node_based(
             for i in range(len(connected_plate_indices) - 1):
                 connections.append((connected_plate_indices[i], connected_plate_indices[i+1]))
             
+            topology = f.get('topology') or None
             final_fasteners.append(FastenerRow(
                 row=row_idx,
                 D=f.get('diameter', 0.19),
                 Eb=f.get('E', 1e7),
                 nu_b=f.get('v', 0.3),
                 method=f.get('method', 'boeing69'),
-                connections=connections
+                connections=connections,
+                topology=topology
             ))
             
     return pitches, plates, final_fasteners
