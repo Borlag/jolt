@@ -27,6 +27,4 @@ Set `fastener.topology` (or place the same string in the JSON case file) to one 
 
 If `topology` is omitted, Boeing methods fall back to `boeing_star_raw` and other
 methods use `empirical_star`. The tests in `tests/test_boeing_topologies.py` show
-simple usage examples, including programmatic overrides. In the Streamlit UI, each
-fastener expander includes a **Topology (load-sharing layout)** dropdown, and the
-node-based fastener table exposes the same field for JSON-style inputs.
+simple usage examples, including programmatic overrides.

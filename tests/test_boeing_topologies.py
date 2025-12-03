@@ -46,16 +46,13 @@ def test_boeing_chain_matches_jolt(case_5):
 
     target_loads = [364.8, 538.4, 371.0, 461.0, 284.3]
     computed_loads = _fastener_loads(solution)
-    # The Boeing chain uses the double-shear stiffness split across adjacent
-    # interfaces; allow moderate tolerance while still anchoring to the JOLT
-    # reference values.
-    assert computed_loads == pytest.approx(target_loads, rel=0.12)
+    assert computed_loads == pytest.approx(target_loads, rel=0.08)
 
     stiffness = _fastener_stiffness(solution)
     upper = stiffness[:4]
     lower = stiffness[4]
     assert max(upper) == pytest.approx(min(upper), rel=0.05)
-    assert all(7.0e4 < s < 3.0e5 for s in stiffness)
+    assert all(7.0e4 < s < 2.0e5 for s in stiffness)
     assert lower < min(upper)
 
 

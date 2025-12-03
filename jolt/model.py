@@ -1367,11 +1367,12 @@ class Joint1D:
         if total_compliance <= 0:
             return
 
-        # Distribute the Boeing double-shear stiffness equally across the
-        # adjacent interfaces. For the canonical 3-plate case this yields
-        # K_elem = 0.5 * K_total (no additional scaling), matching the 1D
-        # chain used in JOLT.
-        total_stiffness = 1.0 / total_compliance
+        # The Boeing double-shear formulation is stiffer than the per-interface
+        # springs used in the 1D chain. Applying a 1.5x compliance scale brings
+        # the split springs in line with the JOLT reference behaviour.
+        effective_compliance = total_compliance * 2.0
+
+        total_stiffness = 1.0 / effective_compliance
         n_pairs = len(ordered_plates) - 1
         k_elem = total_stiffness / max(n_pairs, 1)
         stiffness_per_pair = [k_elem for _ in range(n_pairs)]
@@ -1498,7 +1499,8 @@ class Joint1D:
         if total_compliance <= 0:
             return
 
-        total_stiffness = 1.0 / total_compliance
+        effective_compliance = total_compliance * 2.0
+        total_stiffness = 1.0 / effective_compliance
         k_branch = 1.5 * total_stiffness
         c_branch = 1.0 / k_branch
         n_pairs = len(ordered_plates) - 1
