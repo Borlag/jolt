@@ -95,6 +95,7 @@ class FastenerRow:
     cs_angle: float = 100.0
     cs_affects_bypass: bool = False
     cs_layers: List[str] = field(default_factory=list) # List of layer names that are countersunk
+    topology: Optional[str] = None  # Optional override for topology selection (star/chain variants)
 
 
 @dataclass
@@ -672,6 +673,58 @@ class Joint1D:
         self.fasteners = list(fasteners)
         self._dof: Dict[Tuple[int, int], int] = {}
         self._x: Dict[Tuple[int, int], float] = {}
+        # (row, plate_i, plate_j) -> (compliance, stiffness) used during assembly
+        self._interface_properties: Dict[Tuple[int, int, int], Tuple[float, float]] = {}
+
+    # ------------------------------------------------------------------
+    # Topology helpers
+    # ------------------------------------------------------------------
+    def _fastener_topology(self, fastener: FastenerRow) -> str:
+        """Return the normalized topology string for a fastener row."""
+        topo_raw = (fastener.topology or "").strip().lower()
+        if topo_raw:
+            return topo_raw
+
+        method = fastener.method.lower()
+        if "boeing_chain" in method:
+            return "boeing_chain"
+        if "boeing_star_scaled" in method:
+            return "boeing_star_scaled"
+        if "boeing_star_raw" in method:
+            return "boeing_star_raw"
+        if "empirical_chain" in method:
+            return "empirical_chain"
+        if "empirical_star" in method:
+            return "empirical_star"
+
+        # Defaults: Boeing -> legacy star, everything else -> empirical star
+        if "boeing" in method:
+            return "boeing_star_raw"
+        return "empirical_star"
+
+    def _topology_uses_fastener_dof(self, topology: str) -> bool:
+        return "star" in topology
+
+    # ------------------------------------------------------------------
+    # Utility helpers
+    # ------------------------------------------------------------------
+    def _thickness_at_row(self, plate: Plate, row_index: int) -> float:
+        """Return the effective thickness for a plate at a given row index."""
+        t_val = plate.t
+        if plate.thicknesses:
+            ln = row_index - plate.first_row
+            s = ln if ln < len(plate.thicknesses) else ln - 1
+            if 0 <= s < len(plate.thicknesses):
+                t_val = plate.thicknesses[s]
+        return t_val
+
+    def _ordered_plate_indices(self, connection_pairs: List[Tuple[int, int]]) -> List[int]:
+        ordered_plates: List[int] = []
+        for i, (idx_1, idx_2) in enumerate(connection_pairs):
+            if i == 0:
+                ordered_plates.append(idx_1)
+            ordered_plates.append(idx_2)
+        return ordered_plates
 
     def _calculate_compliance_pairwise(
         self, 
@@ -743,11 +796,13 @@ class Joint1D:
                 self._dof[(plate_index, local_node)] = ndof
                 self._x[(plate_index, local_node)] = position
                 ndof += 1
-        
+
         for fastener in self.fasteners:
-            self._dof[("fastener", fastener.row)] = ndof
-            ndof += 1
-            
+            topology = self._fastener_topology(fastener)
+            if self._topology_uses_fastener_dof(topology):
+                self._dof[("fastener", fastener.row)] = ndof
+                ndof += 1
+
         return ndof
 
     def _plates_at_row(self, row_index: int) -> List[int]:
@@ -934,22 +989,15 @@ class Joint1D:
                 plate_obj_i = plate_lookup[p_i]
                 plate_obj_j = plate_lookup[p_j]
 
-                t1 = plate_obj_i.t
-                if plate_obj_i.thicknesses:
-                    ln1 = row_index - plate_obj_i.first_row
-                    s1 = ln1 if ln1 < len(plate_obj_i.thicknesses) else ln1 - 1
-                    if 0 <= s1 < len(plate_obj_i.thicknesses):
-                        t1 = plate_obj_i.thicknesses[s1]
+                t1 = self._thickness_at_row(plate_obj_i, row_index)
+                t2 = self._thickness_at_row(plate_obj_j, row_index)
 
-                t2 = plate_obj_j.t
-                if plate_obj_j.thicknesses:
-                    ln2 = row_index - plate_obj_j.first_row
-                    s2 = ln2 if ln2 < len(plate_obj_j.thicknesses) else ln2 - 1
-                    if 0 <= s2 < len(plate_obj_j.thicknesses):
-                        t2 = plate_obj_j.thicknesses[s2]
-
-                comp = self._calculate_compliance_pairwise(plate_obj_i, plate_obj_j, fastener, t1, t2)
-                stiff = 1.0 / comp if comp > 0 else 1e12
+                override = self._interface_properties.get((row_index, p_i, p_j))
+                if override is None:
+                    comp = self._calculate_compliance_pairwise(plate_obj_i, plate_obj_j, fastener, t1, t2)
+                    stiff = 1.0 / comp if comp > 0 else 1e12
+                else:
+                    comp, stiff = override
 
                 fastener_results_list.append(FastenerResult(
                     row=row_index,
@@ -1136,6 +1184,7 @@ class Joint1D:
         point_forces: Sequence[Tuple[int, int, float]],
     ) -> Tuple[List[List[float]], List[float], List[Tuple[int, int, float, int, int, float]], List[Tuple[int, int, float]], List[Tuple[int, int, float]], int]:
         point_forces = point_forces or []
+        self._interface_properties = {}
         ndof = self._build_dofs()
 
         stiffness_matrix = [[0.0 for _ in range(ndof)] for _ in range(ndof)]
@@ -1195,109 +1244,17 @@ class Joint1D:
             plates_at_row, connection_pairs = self._plates_and_pairs(fastener)
             if not plates_at_row:
                 continue
-            dof_fastener = self._dof[("fastener", row_index)]
-            method_key = fastener.method.lower()
-            # Unified Stiffness Model (Star Topology)
-            # 1. Calculate Pairwise Compliances for all adjacent pairs
-            # 2. Decompose into Branch Compliances (C_i)
-            # 3. Assemble Star Springs (K_i = 1/C_i)
-
-            plate_lookup = {idx: plate for idx, plate in plates_at_row}
-            
-            # Collect adjacent pairs and their compliances
-            # Note: connection_pairs are already sorted by plate index in _plates_and_pairs
-            # We assume they form a chain: (p1, p2), (p2, p3), ...
-            # If custom connections are used, this might be a tree, but for standard stacks it's a chain.
-            
-            pairwise_compliances = []
-            ordered_plates = [] # List of plate indices in order
-            
-            if not connection_pairs:
-                continue
-
-            # Reconstruct the chain order from pairs
-            # Assuming pairs are (i, i+1)
-            # We iterate through connection_pairs which are [(p1, p2), (p2, p3)...]
-            
-            for i, (idx_1, idx_2) in enumerate(connection_pairs):
-                plate_1 = plate_lookup[idx_1]
-                plate_2 = plate_lookup[idx_2]
-
-                t1 = plate_1.t
-                if plate_1.thicknesses:
-                    ln1 = row_index - plate_1.first_row
-                    s1 = ln1 if ln1 < len(plate_1.thicknesses) else ln1 - 1
-                    if 0 <= s1 < len(plate_1.thicknesses):
-                        t1 = plate_1.thicknesses[s1]
-
-                t2 = plate_2.t
-                if plate_2.thicknesses:
-                    ln2 = row_index - plate_2.first_row
-                    s2 = ln2 if ln2 < len(plate_2.thicknesses) else ln2 - 1
-                    if 0 <= s2 < len(plate_2.thicknesses):
-                        t2 = plate_2.thicknesses[s2]
-
-                compliance = self._calculate_compliance_pairwise(plate_1, plate_2, fastener, t1, t2)
-                if compliance <= 1e-12:
-                    compliance = 1e-12
-                
-                pairwise_compliances.append(compliance)
-                
-                if i == 0:
-                    ordered_plates.append(idx_1)
-                ordered_plates.append(idx_2)
-            
-            # Solve for branch compliances
-            # We need to pass the plates objects to calculate base compliance
-            ordered_plate_objects = [plate_lookup[idx] for idx in ordered_plates]
-            
-            # Note: ordered_plates might have duplicates if not a simple chain?
-            # But for standard stack, it's p1, p2, p3...
-            # Wait, ordered_plates construction in previous loop:
-            # i=0: append p1, append p2.
-            # i=1: append p3.
-            # No, my previous loop was:
-            # if i == 0: ordered_plates.append(idx_1)
-            # ordered_plates.append(idx_2)
-            # This produces [p1, p2, p3, ...] correctly for a chain.
-            
-            branch_compliances = self._solve_branch_compliances(ordered_plate_objects, fastener, row_index, pairwise_compliances)
-            
-            # Apply springs
-            for i, plate_idx in enumerate(ordered_plates):
-                if i >= len(branch_compliances):
-                    break # Should not happen
-                    
-                C_i = branch_compliances[i]
-                
-                # Safety check for negative compliance (physically possible in min-norm solution but unstable)
-                # If C_i is too small or negative, we clamp it?
-                # JOLT matching requires we use the value. 
-                # But negative stiffness will cause singularity or flip.
-                # We'll trust the math for now, but clamp to a small positive if zero.
-                if abs(C_i) < 1e-12:
-                    C_i = 1e-12
-                
-                # Note: If C_i is negative, K_i is negative. 
-                # This is mathematically valid for the system but might look weird.
-                
-                stiffness = 1.0 / C_i
-                
-                plate = plate_lookup[plate_idx]
-                local_node = row_index - plate.first_row
-                dof_plate = self._dof.get((plate_idx, local_node))
-
-                if dof_plate is not None:
-                    # Store spring info (using C_i as "compliance" for the branch)
-                    # Note: The "compliance" stored in springs is used for bearing force calc?
-                    # bearing_force = stiffness * (u_f - u_p). Correct.
-                    # The last element in tuple is 'compliance'.
-                    springs.append((dof_plate, dof_fastener, stiffness, row_index, plate_idx, C_i))
-                    
-                    stiffness_matrix[dof_plate][dof_plate] += stiffness
-                    stiffness_matrix[dof_plate][dof_fastener] -= stiffness
-                    stiffness_matrix[dof_fastener][dof_plate] -= stiffness
-                    stiffness_matrix[dof_fastener][dof_fastener] += stiffness
+            topology = self._fastener_topology(fastener)
+            if topology == "boeing_chain":
+                self._assemble_boeing_chain(plates_at_row, connection_pairs, fastener, springs, stiffness_matrix)
+            elif topology == "boeing_star_scaled":
+                self._assemble_boeing_star_scaled(plates_at_row, connection_pairs, fastener, springs, stiffness_matrix)
+            elif topology == "boeing_star_raw":
+                self._assemble_boeing_star_raw(plates_at_row, connection_pairs, fastener, springs, stiffness_matrix)
+            elif topology == "empirical_chain":
+                self._assemble_empirical_chain(plates_at_row, connection_pairs, fastener, springs, stiffness_matrix)
+            else:
+                self._assemble_empirical_star(plates_at_row, connection_pairs, fastener, springs, stiffness_matrix)
 
         for plate_index, local_node, magnitude in validated_forces:
             dof = self._dof.get((plate_index, local_node))
@@ -1305,6 +1262,285 @@ class Joint1D:
                 force_vector[dof] += magnitude
 
         return stiffness_matrix, force_vector, springs, validated_supports, validated_forces, ndof
+
+    # ------------------------------------------------------------------
+    # Topology-specific assembly helpers
+    # ------------------------------------------------------------------
+    def _boeing_chain_compliance(self, ordered_plates: List[int], plate_lookup: Dict[int, Plate], fastener: FastenerRow, row_index: int) -> float:
+        """Compute the total Boeing compliance for a double-shear stack.
+
+        For 3-plate stacks this follows the JOLT convention: the middle plate
+        thickness feeds ``ti`` and the average outer thickness feeds ``tj``.
+        """
+        n = len(ordered_plates)
+        if n < 2:
+            return 0.0
+
+        t_values = [self._thickness_at_row(plate_lookup[idx], row_index) for idx in ordered_plates]
+        e_values = [plate_lookup[idx].E for idx in ordered_plates]
+
+        if n == 2:
+            return self._calculate_compliance_pairwise(
+                plate_lookup[ordered_plates[0]], plate_lookup[ordered_plates[1]], fastener, t_values[0], t_values[1]
+            )
+
+        mid_idx = n // 2
+        ti = t_values[mid_idx]
+        Ei = e_values[mid_idx]
+        tj = 0.5 * (t_values[0] + t_values[-1])
+        Ej = 0.5 * (e_values[0] + e_values[-1])
+
+        return boeing69_compliance(
+            ti=ti,
+            Ei=Ei,
+            tj=tj,
+            Ej=Ej,
+            Eb=fastener.Eb,
+            nu_b=fastener.nu_b,
+            diameter=fastener.D,
+            shear_planes=2,
+        )
+
+    def _assemble_chain_core(
+        self,
+        ordered_plates: List[int],
+        plate_lookup: Dict[int, Plate],
+        row_index: int,
+        stiffness_per_pair: List[float],
+        springs: List[Tuple[int, int, float, int, int, float]],
+        stiffness_matrix: List[List[float]],
+    ) -> None:
+        """Assemble a pure chain topology using the provided per-pair stiffness values."""
+        if not ordered_plates or not stiffness_per_pair:
+            return
+
+        # Assemble local tridiagonal block
+        n = len(ordered_plates)
+        local_matrix = [[0.0 for _ in range(n)] for _ in range(n)]
+
+        for i, k_pair in enumerate(stiffness_per_pair):
+            idx_i = ordered_plates[i]
+            idx_j = ordered_plates[i + 1]
+            local_matrix[i][i] += k_pair
+            local_matrix[i][i + 1] -= k_pair
+            local_matrix[i + 1][i] -= k_pair
+            local_matrix[i + 1][i + 1] += k_pair
+
+            dof_i = self._dof.get((idx_i, row_index - plate_lookup[idx_i].first_row))
+            dof_j = self._dof.get((idx_j, row_index - plate_lookup[idx_j].first_row))
+            if dof_i is None or dof_j is None:
+                continue
+
+            compliance_branch = 1.0 / k_pair if k_pair > 0 else 0.0
+            # Store bearing springs for each side so bearing loads accumulate per plate
+            springs.append((dof_i, dof_j, k_pair, row_index, idx_i, compliance_branch))
+            springs.append((dof_j, dof_i, k_pair, row_index, idx_j, compliance_branch))
+
+        # Scatter to global stiffness matrix
+        for local_i, plate_idx_i in enumerate(ordered_plates):
+            dof_i = self._dof.get((plate_idx_i, row_index - plate_lookup[plate_idx_i].first_row))
+            if dof_i is None:
+                continue
+            for local_j, plate_idx_j in enumerate(ordered_plates):
+                dof_j = self._dof.get((plate_idx_j, row_index - plate_lookup[plate_idx_j].first_row))
+                if dof_j is None:
+                    continue
+                stiffness_matrix[dof_i][dof_j] += local_matrix[local_i][local_j]
+
+    def _assemble_boeing_chain(
+        self,
+        plates_at_row: List[Tuple[int, Plate]],
+        connection_pairs: List[Tuple[int, int]],
+        fastener: FastenerRow,
+        springs: List[Tuple[int, int, float, int, int, float]],
+        stiffness_matrix: List[List[float]],
+    ) -> None:
+        """Assemble the canonical Boeing/JOLT chain topology (no fastener DOF)."""
+        if not connection_pairs:
+            return
+
+        plate_lookup = {idx: plate for idx, plate in plates_at_row}
+        ordered_plates = self._ordered_plate_indices(connection_pairs)
+        row_index = fastener.row
+
+        total_compliance = self._boeing_chain_compliance(ordered_plates, plate_lookup, fastener, row_index)
+        if total_compliance <= 0:
+            return
+
+        # Distribute the Boeing double-shear stiffness equally across the
+        # adjacent interfaces. For the canonical 3-plate case this yields
+        # K_elem = 0.5 * K_total (no additional scaling), matching the 1D
+        # chain used in JOLT.
+        total_stiffness = 1.0 / total_compliance
+        n_pairs = len(ordered_plates) - 1
+        k_elem = total_stiffness / max(n_pairs, 1)
+        stiffness_per_pair = [k_elem for _ in range(n_pairs)]
+
+        # Track the effective stiffness/compliance used for reporting
+        for i, idx_i in enumerate(ordered_plates[:-1]):
+            idx_j = ordered_plates[i + 1]
+            self._interface_properties[(row_index, idx_i, idx_j)] = (1.0 / k_elem if k_elem > 0 else 0.0, k_elem)
+
+        self._assemble_chain_core(ordered_plates, plate_lookup, row_index, stiffness_per_pair, springs, stiffness_matrix)
+
+    def _assemble_empirical_chain(
+        self,
+        plates_at_row: List[Tuple[int, Plate]],
+        connection_pairs: List[Tuple[int, int]],
+        fastener: FastenerRow,
+        springs: List[Tuple[int, int, float, int, int, float]],
+        stiffness_matrix: List[List[float]],
+    ) -> None:
+        """Assemble a chain using empirical (single-shear) pairwise compliances."""
+        if not connection_pairs:
+            return
+
+        plate_lookup = {idx: plate for idx, plate in plates_at_row}
+        ordered_plates = self._ordered_plate_indices(connection_pairs)
+        row_index = fastener.row
+        stiffness_per_pair: List[float] = []
+
+        for idx_i, idx_j in connection_pairs:
+            plate_i = plate_lookup[idx_i]
+            plate_j = plate_lookup[idx_j]
+            t_i = self._thickness_at_row(plate_i, row_index)
+            t_j = self._thickness_at_row(plate_j, row_index)
+            comp = self._calculate_compliance_pairwise(plate_i, plate_j, fastener, t_i, t_j)
+            if comp <= 0:
+                comp = 1e-12
+            k_pair = 1.0 / comp
+            stiffness_per_pair.append(k_pair)
+            self._interface_properties[(row_index, idx_i, idx_j)] = (comp, k_pair)
+
+        self._assemble_chain_core(ordered_plates, plate_lookup, row_index, stiffness_per_pair, springs, stiffness_matrix)
+
+    def _assemble_star_from_compliances(
+        self,
+        ordered_plates: List[int],
+        plate_lookup: Dict[int, Plate],
+        branch_compliances: List[float],
+        fastener: FastenerRow,
+        springs: List[Tuple[int, int, float, int, int, float]],
+        stiffness_matrix: List[List[float]],
+    ) -> None:
+        if not ordered_plates:
+            return
+
+        row_index = fastener.row
+        dof_fastener = self._dof.get(("fastener", row_index))
+        if dof_fastener is None:
+            return
+
+        for plate_idx, C_i in zip(ordered_plates, branch_compliances):
+            if abs(C_i) < 1e-12:
+                C_i = 1e-12
+            stiffness = 1.0 / C_i
+            plate = plate_lookup[plate_idx]
+            local_node = row_index - plate.first_row
+            dof_plate = self._dof.get((plate_idx, local_node))
+
+            if dof_plate is not None:
+                springs.append((dof_plate, dof_fastener, stiffness, row_index, plate_idx, C_i))
+                stiffness_matrix[dof_plate][dof_plate] += stiffness
+                stiffness_matrix[dof_plate][dof_fastener] -= stiffness
+                stiffness_matrix[dof_fastener][dof_plate] -= stiffness
+                stiffness_matrix[dof_fastener][dof_fastener] += stiffness
+
+    def _assemble_boeing_star_raw(
+        self,
+        plates_at_row: List[Tuple[int, Plate]],
+        connection_pairs: List[Tuple[int, int]],
+        fastener: FastenerRow,
+        springs: List[Tuple[int, int, float, int, int, float]],
+        stiffness_matrix: List[List[float]],
+    ) -> None:
+        """Legacy Boeing star using pairwise single-shear compliances (current behaviour)."""
+        if not connection_pairs:
+            return
+
+        plate_lookup = {idx: plate for idx, plate in plates_at_row}
+        row_index = fastener.row
+        pairwise_compliances = []
+        ordered_plates = self._ordered_plate_indices(connection_pairs)
+
+        for idx_i, idx_j in connection_pairs:
+            plate_i = plate_lookup[idx_i]
+            plate_j = plate_lookup[idx_j]
+            t_i = self._thickness_at_row(plate_i, row_index)
+            t_j = self._thickness_at_row(plate_j, row_index)
+            compliance = self._calculate_compliance_pairwise(plate_i, plate_j, fastener, t_i, t_j)
+            if compliance <= 1e-12:
+                compliance = 1e-12
+            pairwise_compliances.append(compliance)
+            self._interface_properties[(row_index, idx_i, idx_j)] = (compliance, 1.0 / compliance)
+
+        ordered_plate_objects = [plate_lookup[idx] for idx in ordered_plates]
+        branch_compliances = self._solve_branch_compliances(ordered_plate_objects, fastener, row_index, pairwise_compliances)
+        self._assemble_star_from_compliances(ordered_plates, plate_lookup, branch_compliances, fastener, springs, stiffness_matrix)
+
+    def _assemble_boeing_star_scaled(
+        self,
+        plates_at_row: List[Tuple[int, Plate]],
+        connection_pairs: List[Tuple[int, int]],
+        fastener: FastenerRow,
+        springs: List[Tuple[int, int, float, int, int, float]],
+        stiffness_matrix: List[List[float]],
+    ) -> None:
+        """Boeing star with branch scaling to match the double-shear chain stiffness."""
+        if not connection_pairs:
+            return
+
+        plate_lookup = {idx: plate for idx, plate in plates_at_row}
+        ordered_plates = self._ordered_plate_indices(connection_pairs)
+        row_index = fastener.row
+
+        total_compliance = self._boeing_chain_compliance(ordered_plates, plate_lookup, fastener, row_index)
+        if total_compliance <= 0:
+            return
+
+        total_stiffness = 1.0 / total_compliance
+        k_branch = 1.5 * total_stiffness
+        c_branch = 1.0 / k_branch
+        n_pairs = len(ordered_plates) - 1
+        k_elem = total_stiffness / max(n_pairs, 1)
+
+        for idx_i, idx_j in connection_pairs:
+            self._interface_properties[(row_index, idx_i, idx_j)] = (1.0 / k_elem if k_elem > 0 else 0.0, k_elem)
+
+        branch_compliances = [c_branch for _ in ordered_plates]
+        self._assemble_star_from_compliances(ordered_plates, plate_lookup, branch_compliances, fastener, springs, stiffness_matrix)
+
+    def _assemble_empirical_star(
+        self,
+        plates_at_row: List[Tuple[int, Plate]],
+        connection_pairs: List[Tuple[int, int]],
+        fastener: FastenerRow,
+        springs: List[Tuple[int, int, float, int, int, float]],
+        stiffness_matrix: List[List[float]],
+    ) -> None:
+        """Generic empirical star (Huth/others) using pairwise compliances."""
+        if not connection_pairs:
+            return
+
+        plate_lookup = {idx: plate for idx, plate in plates_at_row}
+        row_index = fastener.row
+        pairwise_compliances = []
+        ordered_plates = self._ordered_plate_indices(connection_pairs)
+
+        for idx_i, idx_j in connection_pairs:
+            plate_i = plate_lookup[idx_i]
+            plate_j = plate_lookup[idx_j]
+            t_i = self._thickness_at_row(plate_i, row_index)
+            t_j = self._thickness_at_row(plate_j, row_index)
+            compliance = self._calculate_compliance_pairwise(plate_i, plate_j, fastener, t_i, t_j)
+            if compliance <= 1e-12:
+                compliance = 1e-12
+            pairwise_compliances.append(compliance)
+            self._interface_properties[(row_index, idx_i, idx_j)] = (compliance, 1.0 / compliance)
+
+        ordered_plate_objects = [plate_lookup[idx] for idx in ordered_plates]
+        branch_compliances = self._solve_branch_compliances(ordered_plate_objects, fastener, row_index, pairwise_compliances)
+        self._assemble_star_from_compliances(ordered_plates, plate_lookup, branch_compliances, fastener, springs, stiffness_matrix)
 
 
 
