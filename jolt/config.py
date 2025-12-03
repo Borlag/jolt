@@ -78,6 +78,7 @@ def fastener_to_dict(fastener: FastenerRow) -> Dict[str, Any]:
         "Eb": fastener.Eb,
         "nu_b": fastener.nu_b,
         "method": fastener.method,
+        "topology": getattr(fastener, "topology", None),
         # New fields
         "name": fastener.name,
         "marker_symbol": fastener.marker_symbol,
@@ -122,6 +123,7 @@ def fastener_from_dict(data: Dict[str, Any]) -> FastenerRow:
 
     k_manual = data.get("k_manual")
     method = _normalize_fastener_method(data.get("method", _DEFAULT_FASTENER_METHOD))
+    topology = data.get("topology")
 
     # Load new fields with safe defaults
     name = str(data.get("name", ""))
@@ -137,6 +139,7 @@ def fastener_from_dict(data: Dict[str, Any]) -> FastenerRow:
         connections=connections,
         name=name,
         marker_symbol=marker_symbol,
+        topology=str(topology) if topology is not None else None,
     )
 
 

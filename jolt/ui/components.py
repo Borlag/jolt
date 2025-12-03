@@ -13,6 +13,14 @@ from .utils import available_fastener_pairs
 from .state import apply_configuration, clear_configuration_widget_state, serialize_configuration, convert_session_state, safe_load_model
 
 _UPLOAD_DIGEST_KEY = "_cfg_upload_digest"
+_TOPOLOGY_OPTIONS = [
+    ("Auto (based on method)", ""),
+    ("Boeing chain (JOLT)", "boeing_chain"),
+    ("Boeing star (scaled double-shear)", "boeing_star_scaled"),
+    ("Boeing star (legacy single-shear)", "boeing_star_raw"),
+    ("Empirical chain (Huth / other)", "empirical_chain"),
+    ("Empirical star (default for non-Boeing)", "empirical_star"),
+]
 
 def render_sidebar() -> Tuple[List[float], List[Plate], List[FastenerRow], List[Tuple[int, int, float]], Dict[int, float], Dict[str, str]]:
     with st.sidebar:
@@ -175,12 +183,12 @@ def _render_node_based_inputs(units: Dict[str, str]) -> Tuple[List[float], List[
 
     st.subheader("Fasteners")
     if "fastener_table_nb" not in st.session_state:
-        st.session_state.fastener_table_nb = pd.DataFrame(columns=["node", "d", "layers", "E", "v", "method"])
+        st.session_state.fastener_table_nb = pd.DataFrame(columns=["node", "d", "layers", "E", "v", "method", "topology"])
     elif isinstance(st.session_state.fastener_table_nb, list):
         st.session_state.fastener_table_nb = pd.DataFrame(st.session_state.fastener_table_nb)
-        
+
     # Ensure columns exist
-    required_cols = ["node", "d", "layers", "E", "v", "method"]
+    required_cols = ["node", "d", "layers", "E", "v", "method", "topology"]
     for col in required_cols:
         if col not in st.session_state.fastener_table_nb.columns:
             if col == "E":
@@ -189,10 +197,12 @@ def _render_node_based_inputs(units: Dict[str, str]) -> Tuple[List[float], List[
                 st.session_state.fastener_table_nb[col] = 0.3
             elif col == "method":
                 st.session_state.fastener_table_nb[col] = "boeing69"
+            elif col == "topology":
+                st.session_state.fastener_table_nb[col] = ""
             else:
                 # Should not happen for node/d/layers if table was created before, but safe default
                 st.session_state.fastener_table_nb[col] = None
-        
+
     fast_df = st.data_editor(
         st.session_state.fastener_table_nb,
         num_rows="dynamic",
@@ -207,7 +217,13 @@ def _render_node_based_inputs(units: Dict[str, str]) -> Tuple[List[float], List[
                 options=["boeing69", "huth", "grumman"],
                 default="boeing69",
                 required=True
-            )
+            ),
+            "topology": st.column_config.SelectboxColumn(
+                "Topology",
+                options=[opt[1] for opt in _TOPOLOGY_OPTIONS],
+                default="",
+                help="Leave blank to let the method choose; otherwise pick a chain/star variant."
+            ),
         },
         key="fastener_editor_nb",
         hide_index=True,
@@ -254,7 +270,8 @@ def _render_node_based_inputs(units: Dict[str, str]) -> Tuple[List[float], List[
             "connected_layers": layers,
             "E": row.get("E", 1e7),
             "v": row.get("v", 0.3),
-            "method": row.get("method", "boeing69")
+            "method": row.get("method", "boeing69"),
+            "topology": row.get("topology", ""),
         })
 
     if fastener_warnings:
@@ -810,6 +827,20 @@ def _render_fasteners_section(units: Dict[str, str]):
                 fastener.k_manual = st.number_input(
                     f"Manual k [{units['stiffness']}]", 1.0, 1e12, fastener.k_manual or 1.0e6, key=f"fr_km_{idx}_v{st.session_state.get('_widget_version', 0)}", step=1e5, format="%.0f"
                 )
+
+            topo_values = [opt[1] for opt in _TOPOLOGY_OPTIONS]
+            topo_labels = {opt[1]: opt[0] for opt in _TOPOLOGY_OPTIONS}
+            current_topology = fastener.topology or ""
+            topo_index = topo_values.index(current_topology) if current_topology in topo_values else 0
+            selected_topology = st.selectbox(
+                "Topology (load-sharing layout)",
+                topo_values,
+                index=topo_index,
+                format_func=lambda v: topo_labels.get(v, topo_labels[""]),
+                help="Chain (Boeing) matches JOLT; star options keep an internal fastener DOF.",
+                key=f"fr_topology_{idx}_v{st.session_state.get('_widget_version', 0)}",
+            )
+            fastener.topology = selected_topology or None
             
             # --- Fatigue Configuration ---
             st.markdown("---")
