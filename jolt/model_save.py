@@ -883,20 +883,20 @@ class Joint1D:
         is_boeing = "boeing" in fastener.method.lower()
 
         for plate in plates:
-            # if is_boeing:
-            #     # Boeing Method: Pure minimal-norm solution (Prior = 0)
-            #     # No legacy single-plate physics should influence the distribution.
-            #     # base_compliances.append(0.0)
-            # else:
-            # Legacy/Other Methods: Use single-plate model as prior
-            t_local = plate.t
-            if plate.thicknesses:
-                ln = row_index - plate.first_row
-                s = ln if ln < len(plate.thicknesses) else ln - 1
-                if 0 <= s < len(plate.thicknesses):
-                    t_local = plate.thicknesses[s]
-            
-            base_compliances.append(self._calculate_base_compliance(plate, fastener, t_local))
+            if is_boeing:
+                # Boeing Method: Pure minimal-norm solution (Prior = 0)
+                # No legacy single-plate physics should influence the distribution.
+                base_compliances.append(0.0)
+            else:
+                # Legacy/Other Methods: Use single-plate model as prior
+                t_local = plate.t
+                if plate.thicknesses:
+                    ln = row_index - plate.first_row
+                    s = ln if ln < len(plate.thicknesses) else ln - 1
+                    if 0 <= s < len(plate.thicknesses):
+                        t_local = plate.thicknesses[s]
+                
+                base_compliances.append(self._calculate_base_compliance(plate, fastener, t_local))
             
         # 2. Construct Linear System for Lagrange Multipliers (lambda)
         # Matrix M = AA^T (Size n_pairs x n_pairs)
@@ -1197,7 +1197,7 @@ class Joint1D:
         for node in node_results:
             f_right = bar_force_map.get((node.plate_id, node.local_node), 0.0)
             f_left = bar_force_map.get((node.plate_id, node.local_node - 1), 0.0)
-            node.net_bypass = f_left if is_support_left else f_right
+            node.net_bypass = f_right if is_support_left else f_left
 
     def _generate_bearing_bypass_results(
         self, 
