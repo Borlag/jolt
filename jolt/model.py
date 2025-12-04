@@ -230,139 +230,148 @@ class JointSolution:
         # Temporary storage for ranking: plate_name -> list of results
         plate_results: Dict[str, List[Dict[str, Any]]] = {}
 
+        # Detect Support Side
+        is_support_left = self._is_support_left()
+
         for node in self.nodes:
             if node.row not in fastener_map:
                 continue
             
-            f_def = fastener_map[node.row]
+            f_res, entry = self._calculate_node_fatigue(node, fastener_map, bb_map, plate_map, is_support_left)
             
-            # Get Geometry
-            D = f_def.D
-            t = node.thickness
-            area = node.bypass_area if node.bypass_area else 0.0
-            
-            if t > 1e-9 and area > 1e-9:
-                W = area / t
-            else:
-                W = 0.0
-
-            # Get Loads
-            bb = bb_map.get((node.plate_name, node.row))
-            if not bb:
-                continue
+            if f_res and entry:
+                self.fatigue_results.append(f_res)
                 
-            P_bearing = abs(bb.bearing)
-            P_bypass = abs(node.net_bypass)
-            
-            # Countersink Logic
-            is_cs = f_def.is_countersunk
-            cs_depth_ratio = 0.0
-            if is_cs:
-                if node.plate_name in f_def.cs_layers:
-                    if f_def.cs_depth > 0:
-                        cs_depth_ratio = f_def.cs_depth / t
-                else:
-                    is_cs = False
-            
-            # Detect Support Side
-            # We need to know support side to determine Incoming/Bypass correctly for P_max
-            support_left = 0
-            support_right = 0
-            for r in self.reactions:
-                if r.local_node == 0: support_left += 1
-                else: support_right += 1
-            is_support_left = support_left >= support_right
+                if node.plate_name not in plate_results:
+                    plate_results[node.plate_name] = []
+                plate_results[node.plate_name].append(entry)
 
-            # Determine Incoming and Bypass
-            # Incoming: Load on Support Side
-            # Bypass: Load on Free Side
-            if is_support_left:
-                bypass = abs(bb.flow_right)
-                incoming = abs(bb.flow_left)
+        self._rank_critical_points(plate_results)
+
+    def _is_support_left(self) -> bool:
+        """Determine if the support is primarily on the left side."""
+        support_left = 0
+        support_right = 0
+        for r in self.reactions:
+            if r.local_node == 0: support_left += 1
+            else: support_right += 1
+        return support_left >= support_right
+
+    def _calculate_node_fatigue(
+        self, 
+        node: NodeResult, 
+        fastener_map: Dict[int, FastenerRow], 
+        bb_map: Dict[Tuple[str, int], BearingBypassResult], 
+        plate_map: Dict[str, Plate], 
+        is_support_left: bool
+    ) -> Tuple[Optional[FatigueResult], Optional[Dict[str, Any]]]:
+        """Calculate fatigue result for a single node."""
+        f_def = fastener_map[node.row]
+        
+        # Get Geometry
+        D = f_def.D
+        t = node.thickness
+        area = node.bypass_area if node.bypass_area else 0.0
+        
+        if t > 1e-9 and area > 1e-9:
+            W = area / t
+        else:
+            W = 0.0
+
+        # Get Loads
+        bb = bb_map.get((node.plate_name, node.row))
+        if not bb:
+            return None, None
+            
+        P_bearing = abs(bb.bearing)
+        P_bypass = abs(node.net_bypass)
+        
+        # Countersink Logic
+        is_cs = f_def.is_countersunk
+        cs_depth_ratio = 0.0
+        if is_cs:
+            if node.plate_name in f_def.cs_layers:
+                if f_def.cs_depth > 0:
+                    cs_depth_ratio = f_def.cs_depth / t
             else:
-                bypass = abs(bb.flow_left)
-                incoming = abs(bb.flow_right)
-            
-            # Reference Load for SSF is the maximum load (Incoming or Bypass)
-            P_max = max(incoming, bypass)
+                is_cs = False
+        
+        # Determine Incoming and Bypass
+        if is_support_left:
+            bypass = abs(bb.flow_right)
+            incoming = abs(bb.flow_left)
+        else:
+            bypass = abs(bb.flow_left)
+            incoming = abs(bb.flow_right)
+        
+        # Reference Load for SSF is the maximum load (Incoming or Bypass)
+        P_max = max(incoming, bypass)
 
-            # Calculate SSF
-            res = fatigue.calculate_ssf(
-                load_transfer=P_bearing,
-                load_bypass=P_bypass, # Still pass the actual bypass load for term_bypass calculation?
-                # Wait, term_bypass = Ktg * (load_bypass / Area).
-                # If we use P_max for sigma_ref, do we still use P_bypass for term_bypass?
-                # The formula is SSF = (alpha*beta/sigma_ref) * (term_bearing + term_bypass).
-                # If sigma_ref changes, SSF changes.
-                # But term_bypass depends on load_bypass.
-                # Usually load_bypass in term_bypass is the load passing through the net section.
-                # Which is P_bypass (Free Side).
-                # So we keep load_bypass=P_bypass.
-                # But we pass reference_load=P_max for sigma_ref.
-                D=D,
-                W=W,
-                t=t,
-                offset=f_def.hole_offset,
-                is_countersunk=is_cs,
-                cs_depth_ratio=cs_depth_ratio,
-                alpha=f_def.hole_condition_factor,
-                beta=f_def.hole_filling_factor,
-                shear_type="single", 
-                cs_affects_bypass=f_def.cs_affects_bypass,
-                reference_load=P_max
-            )
-            
-            peak_stress = res["ssf"] * res["sigma_ref"]
-            
-            # --- FSI Logic ---
-            plate = plate_map.get(node.plate_name)
-            f_max = plate.fatigue_strength if plate and plate.fatigue_strength else None
-            
-            if f_max and f_max > 0:
-                fsi = peak_stress / f_max
-            else:
-                fsi = peak_stress # Fallback if no strength defined
+        # Calculate SSF
+        res = fatigue.calculate_ssf(
+            load_transfer=P_bearing,
+            load_bypass=P_bypass, 
+            D=D,
+            W=W,
+            t=t,
+            offset=f_def.hole_offset,
+            is_countersunk=is_cs,
+            cs_depth_ratio=cs_depth_ratio,
+            alpha=f_def.hole_condition_factor,
+            beta=f_def.hole_filling_factor,
+            shear_type="single", 
+            cs_affects_bypass=f_def.cs_affects_bypass,
+            reference_load=P_max
+        )
+        
+        peak_stress = res["ssf"] * res["sigma_ref"]
+        
+        # --- FSI Logic ---
+        plate = plate_map.get(node.plate_name)
+        f_max = plate.fatigue_strength if plate and plate.fatigue_strength else None
+        
+        if f_max and f_max > 0:
+            fsi = peak_stress / f_max
+        else:
+            fsi = peak_stress # Fallback if no strength defined
 
-            f_res = FatigueResult(
-                node_id=node.legacy_id,
-                row=node.row,
-                plate_name=node.plate_name,
-                ktg=res["ktg"],
-                ktn=res["ktn"],
-                ktb=res["ktb"],
-                theta=res["theta"],
-                ssf=res["ssf"],
-                bearing_load=P_bearing,
-                bypass_load=P_bypass,
-                sigma_ref=res["sigma_ref"],
-                term_bearing=res["term_bearing"],
-                term_bypass=res["term_bypass"],
-                peak_stress=peak_stress,
-                fsi=fsi,
-                f_max=f_max,
-                incoming_load=incoming
-            )
-            
-            self.fatigue_results.append(f_res)
-            
-            entry = {
-                "node_id": node.legacy_id,
-                "plate_name": node.plate_name,
-                "row": node.row,
-                "peak_stress": peak_stress,
-                "ssf": res["ssf"],
-                "f_max": f_max,
-                "fsi": fsi,
-                "x": node.x, 
-                "y": 0.0,
-                "incoming_load": incoming
-            }
-            
-            if node.plate_name not in plate_results:
-                plate_results[node.plate_name] = []
-            plate_results[node.plate_name].append(entry)
+        f_res = FatigueResult(
+            node_id=node.legacy_id,
+            row=node.row,
+            plate_name=node.plate_name,
+            ktg=res["ktg"],
+            ktn=res["ktn"],
+            ktb=res["ktb"],
+            theta=res["theta"],
+            ssf=res["ssf"],
+            bearing_load=P_bearing,
+            bypass_load=P_bypass,
+            sigma_ref=res["sigma_ref"],
+            term_bearing=res["term_bearing"],
+            term_bypass=res["term_bypass"],
+            peak_stress=peak_stress,
+            fsi=fsi,
+            f_max=f_max,
+            incoming_load=incoming
+        )
+        
+        entry = {
+            "node_id": node.legacy_id,
+            "plate_name": node.plate_name,
+            "row": node.row,
+            "peak_stress": peak_stress,
+            "ssf": res["ssf"],
+            "f_max": f_max,
+            "fsi": fsi,
+            "x": node.x, 
+            "y": 0.0,
+            "incoming_load": incoming
+        }
+        
+        return f_res, entry
 
-        # Ranking Logic: Find max FSI per plate, then rank plates
+    def _rank_critical_points(self, plate_results: Dict[str, List[Dict[str, Any]]]) -> None:
+        """Rank critical points based on FSI."""
         ranked_candidates = []
         
         for plate_name, results in plate_results.items():
@@ -952,8 +961,34 @@ class Joint1D:
             supports, point_forces or []
         )
 
+        # Keep original stiffness for reaction calculation
         stiffness_matrix_orig = [row[:] for row in stiffness_matrix]
 
+        # Apply Boundary Conditions
+        self._apply_boundary_conditions(stiffness_matrix, force_vector, validated_supports, ndof)
+
+        # Solve System
+        displacements = solve_dense(stiffness_matrix, force_vector)
+        
+        # Post-process results
+        return self._generate_solution(
+            displacements, 
+            stiffness_matrix_orig, 
+            force_vector, 
+            springs, 
+            validated_supports, 
+            validated_forces, 
+            ndof
+        )
+
+    def _apply_boundary_conditions(
+        self, 
+        stiffness_matrix: List[List[float]], 
+        force_vector: List[float], 
+        validated_supports: List[Tuple[int, int, float]], 
+        ndof: int
+    ) -> None:
+        """Apply displacement boundary conditions to the system matrix and force vector."""
         for plate_index, local_node, displacement in validated_supports:
             dof = self._dof.get((plate_index, local_node))
             if dof is not None:
@@ -961,18 +996,80 @@ class Joint1D:
                 stiffness_matrix[dof][dof] = 1.0
                 force_vector[dof] = displacement
 
-        displacements = solve_dense(stiffness_matrix, force_vector)
+    def _generate_solution(
+        self,
+        displacements: List[float],
+        stiffness_matrix_orig: List[List[float]],
+        force_vector: List[float],
+        springs: List[Tuple[int, int, float, int, int, float]],
+        validated_supports: List[Tuple[int, int, float]],
+        validated_forces: List[Tuple[int, int, float]],
+        ndof: int
+    ) -> JointSolution:
+        """Generate the full JointSolution object from the raw solution data."""
+        
         plate_dof_count = sum(plate.segment_count() + 1 for plate in self.plates)
         plate_displacements = displacements[:plate_dof_count]
 
+        # 1. Calculate Bearing Forces
+        bearing_forces = self._calculate_bearing_forces(displacements, springs)
+
+        # 2. Generate Fastener Results
+        fastener_results_list = self._generate_fastener_results(bearing_forces)
+
+        # 3. Generate Node Results (Initial)
+        node_results = self._generate_node_results(displacements)
+
+        # 4. Generate Bar Results
+        bar_results = self._generate_bar_results(displacements)
+        
+        # 5. Update Nodes with Bypass Loads (requires Bar Results)
+        self._update_nodes_with_bypass(node_results, bar_results, validated_supports)
+
+        # 6. Generate Bearing/Bypass Results
+        bb_results = self._generate_bearing_bypass_results(node_results, bar_results, bearing_forces)
+
+        # 7. Generate Reactions
+        reaction_results = self._generate_reaction_results(
+            displacements, stiffness_matrix_orig, validated_supports, validated_forces, ndof
+        )
+
+        solution = JointSolution(
+            displacements=plate_displacements,
+            stiffness_matrix=stiffness_matrix_orig, # Return original K? Or modified? Usually original is more useful for checking.
+            force_vector=force_vector,
+            fasteners=fastener_results_list,
+            bearing_bypass=bb_results,
+            nodes=node_results,
+            bars=bar_results,
+            reactions=reaction_results,
+            dof_map=self._dof,
+            full_displacements=displacements,
+            plates=self.plates,
+            applied_forces=[{"plate": p, "node": n, "Value": v} for p, n, v in validated_forces]
+        )
+
+        solution.compute_fatigue_factors(self.fasteners)
+
+        return solution
+
+    def _calculate_bearing_forces(
+        self, 
+        displacements: List[float], 
+        springs: List[Tuple[int, int, float, int, int, float]]
+    ) -> Dict[Tuple[int, int], float]:
+        """Calculate bearing forces at each fastener location."""
         bearing_forces: Dict[Tuple[int, int], float] = {}
         for dof_plate, dof_fastener, stiffness, row, plate_idx, _ in springs:
             u_plate = displacements[dof_plate]
             u_fastener = displacements[dof_fastener]
             force = stiffness * (u_fastener - u_plate)
             bearing_forces[(plate_idx, row)] = bearing_forces.get((plate_idx, row), 0.0) + force
+        return bearing_forces
 
-        fastener_results_list = []
+    def _generate_fastener_results(self, bearing_forces: Dict[Tuple[int, int], float]) -> List[FastenerResult]:
+        """Generate detailed results for each fastener."""
+        results = []
         for fastener in self.fasteners:
             plates_at_row, connection_pairs = self._plates_and_pairs(fastener)
             if not plates_at_row:
@@ -999,7 +1096,7 @@ class Joint1D:
                 else:
                     comp, stiff = override
 
-                fastener_results_list.append(FastenerResult(
+                results.append(FastenerResult(
                     row=row_index,
                     plate_i=p_i,
                     plate_j=p_j,
@@ -1016,8 +1113,11 @@ class Joint1D:
                     t1=t1,
                     t2=t2
                 ))
+        return results
 
-        node_results = []
+    def _generate_node_results(self, displacements: List[float]) -> List[NodeResult]:
+        """Generate results for all nodes."""
+        results = []
         for plate_idx, plate in enumerate(self.plates):
             segments = plate.segment_count()
             for local_node in range(segments + 1):
@@ -1039,20 +1139,23 @@ class Joint1D:
                 elif local_node > 0 and local_node - 1 < len(plate.A_strip):
                     area_node = plate.A_strip[local_node - 1]
 
-                node_results.append(NodeResult(
+                results.append(NodeResult(
                     plate_id=plate_idx,
                     plate_name=plate.name,
                     local_node=local_node,
                     x=self._x.get((plate_idx, local_node), 0.0),
                     displacement=disp,
-                    net_bypass=0.0,
+                    net_bypass=0.0, # Populated later
                     thickness=t_node,
                     bypass_area=area_node,
                     row=row_abs,
                     legacy_id=legacy_id
                 ))
+        return results
 
-        bar_results = []
+    def _generate_bar_results(self, displacements: List[float]) -> List[BarResult]:
+        """Generate results for all bar elements."""
+        results = []
         for plate_idx, plate in enumerate(self.plates):
             segments = plate.segment_count()
             for seg in range(segments):
@@ -1068,7 +1171,7 @@ class Joint1D:
 
                 axial_force = k_bar * (u_r - u_l)
 
-                bar_results.append(BarResult(
+                results.append(BarResult(
                     plate_id=plate_idx,
                     plate_name=plate.name,
                     segment=seg,
@@ -1076,7 +1179,15 @@ class Joint1D:
                     stiffness=k_bar,
                     modulus=plate.E
                 ))
+        return results
 
+    def _update_nodes_with_bypass(
+        self, 
+        node_results: List[NodeResult], 
+        bar_results: List[BarResult], 
+        validated_supports: List[Tuple[int, int, float]]
+    ) -> None:
+        """Calculate and update net bypass loads for nodes."""
         bar_force_map = {(b.plate_id, b.segment): b.axial_force for b in bar_results}
 
         support_left = sum(1 for _, ln, _ in validated_supports if ln == 0)
@@ -1088,13 +1199,21 @@ class Joint1D:
             f_left = bar_force_map.get((node.plate_id, node.local_node - 1), 0.0)
             node.net_bypass = f_right if is_support_left else f_left
 
-        bb_results = []
+    def _generate_bearing_bypass_results(
+        self, 
+        node_results: List[NodeResult], 
+        bar_results: List[BarResult],
+        bearing_forces: Dict[Tuple[int, int], float]
+    ) -> List[BearingBypassResult]:
+        """Generate combined bearing and bypass results."""
+        bar_force_map = {(b.plate_id, b.segment): b.axial_force for b in bar_results}
+        results = []
         for node in node_results:
             brg = bearing_forces.get((node.plate_id, node.row), 0.0)
             f_right = bar_force_map.get((node.plate_id, node.local_node), 0.0)
             f_left = bar_force_map.get((node.plate_id, node.local_node - 1), 0.0)
 
-            bb_results.append(BearingBypassResult(
+            results.append(BearingBypassResult(
                 row=node.row,
                 plate_name=node.plate_name,
                 bearing=brg,
@@ -1102,8 +1221,18 @@ class Joint1D:
                 flow_left=f_left,
                 flow_right=f_right
             ))
+        return results
 
-        reaction_results = []
+    def _generate_reaction_results(
+        self,
+        displacements: List[float],
+        stiffness_matrix_orig: List[List[float]],
+        validated_supports: List[Tuple[int, int, float]],
+        validated_forces: List[Tuple[int, int, float]],
+        ndof: int
+    ) -> List[ReactionResult]:
+        """Calculate reactions at support nodes."""
+        results = []
         for plate_index, local_node, _ in validated_supports:
             dof = self._dof.get((plate_index, local_node))
             if dof is not None:
@@ -1118,32 +1247,14 @@ class Joint1D:
                     if pi == plate_index and ln == local_node:
                         f_app += val
                 reaction = internal_force - f_app
-                reaction_results.append(ReactionResult(
+                results.append(ReactionResult(
                     plate_id=plate_index,
                     plate_name=self.plates[plate_index].name,
                     local_node=local_node,
                     global_node=self.plates[plate_index].first_row + local_node,
                     reaction=reaction
                 ))
-
-        solution = JointSolution(
-            displacements=plate_displacements,
-            stiffness_matrix=stiffness_matrix,
-            force_vector=force_vector,
-            fasteners=fastener_results_list,
-            bearing_bypass=bb_results,
-            nodes=node_results,
-            bars=bar_results,
-            reactions=reaction_results,
-            dof_map=self._dof,
-            full_displacements=displacements,
-            plates=self.plates,
-            applied_forces=[{"plate": p, "node": n, "Value": v} for p, n, v in validated_forces]
-        )
-
-        solution.compute_fatigue_factors(self.fasteners)
-
-        return solution
+        return results
 
     def debug_system(self, supports: Sequence[Tuple[int, int, float]], point_forces: Optional[Sequence[Tuple[int, int, float]]] = None):
         """Assemble and return (K, F, dof_map) without solving."""
