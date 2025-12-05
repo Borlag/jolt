@@ -90,7 +90,17 @@ with tab1:
         st.info("Соберите схему в левой панели и нажмите **Solve**. Для воспроизведения скрина используйте **Load ▶ JOLT Figure 76**.")
 
 with tab2:
-    render_comparison_tab(st.session_state.saved_models, st.session_state.unit_system)
+    render_comparison_tab(
+        st.session_state.saved_models, 
+        st.session_state.unit_system,
+        current_model={
+            "pitches": pitches,
+            "plates": plates,
+            "fasteners": fasteners,
+            "supports": supports,
+            "point_forces": point_forces,
+        }
+    )
 
 with tab3:
     render_export_tab(pitches, plates, fasteners, supports, point_forces, units)

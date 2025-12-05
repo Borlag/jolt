@@ -65,6 +65,100 @@ def boeing69_compliance(
 
     return term_shear + term_bending + term_bearing
 
+def boeing69_eq1_compliance(
+    t1: float, E1: float,
+    t2: float, E2: float,
+    Ef: float, Gf: float,
+    d: float,
+) -> float:
+    """
+    Boeing 1 (Eq.6 Eremin) – single shear compliance.
+    
+    Difference from Legacy:
+    - Shear term denominator uses 5*G*A instead of 9*G*A.
+    """
+    if d <= 0: raise ValueError("Fastener diameter must be positive")
+    if Ef <= 0: raise ValueError("Fastener modulus Ef must be positive")
+    
+    area_bolt = math.pi * d**2 / 4.0
+    inertia_bolt = math.pi * d**4 / 64.0
+    
+    # 1. Bending Term (Same as Legacy / Eq.6 first term)
+    # (t2^3 + 5t2^2t1 + 5t2t1^2 + t1^3) / (40 * Ef * I)
+    term_bending = (
+        t2**3 + 5.0*t2**2*t1 + 5.0*t2*t1**2 + t1**3
+    ) / (40.0 * Ef * inertia_bolt)
+    
+    # 2. Shear Term (Eq.6 second term)
+    # 4(t2 + t1) / (5 * G3 * A3)
+    # Legacy uses 9 instead of 5.
+    term_shear = 4.0 * (t2 + t1) / (5.0 * Gf * area_bolt)
+    
+    # 3. Bearing Term (Eq.6 last terms)
+    # (t2+t1)/(t2*t1*E3) + 1/(t2*E2) + 1/(t1*E1)
+    # Rewrite: 1/(t1*E3) + 1/(t2*E3) + 1/(t1*E1) + 1/(t2*E2)
+    #        = 1/t1 * (1/E1 + 1/E3) + 1/t2 * (1/E2 + 1/E3)
+    term_bearing = (1.0 / t1) * (1.0/E1 + 1.0/Ef) + (1.0 / t2) * (1.0/E2 + 1.0/Ef)
+    
+    return term_bending + term_shear + term_bearing
+
+def boeing69_eq2_compliance(
+    t1: float, E1: float,
+    t2: float, E2: float,
+    Ef: float,
+    d: float,
+) -> float:
+    """
+    Boeing 2 (Eq.7 Eremin / Eq.2 Methodology) – single shear compliance.
+    
+    C = (2^((t1/d)^0.85) / t1) * (1/E1 + 3/(8Ef)) + ... (symmetric for t2)
+    """
+    if d <= 0: raise ValueError("Fastener diameter must be positive")
+    
+    # Exponent terms
+    exp1 = (t1 / d) ** 0.85
+    exp2 = (t2 / d) ** 0.85
+    
+    # Term 1
+    # Note: 2^(x) can be computed as pow(2, x) or 2**x
+    term1_factor = (2.0 ** exp1) / t1
+    term1_compliance = term1_factor * (1.0/E1 + 3.0/(8.0*Ef))
+    
+    # Term 2
+    term2_factor = (2.0 ** exp2) / t2
+    term2_compliance = term2_factor * (1.0/E2 + 3.0/(8.0*Ef))
+    
+    return term1_compliance + term2_compliance
+
+def boeing_pair_compliance(
+    t1: float, E1: float,
+    t2: float, E2: float,
+    Ef: float, Gf: float,
+    d: float,
+    variant: Literal["legacy", "eq1", "eq2"] = "legacy",
+) -> float:
+    """Router for varying Boeing compliance formulas."""
+    
+    if variant == "eq1":
+        return boeing69_eq1_compliance(t1, E1, t2, E2, Ef, Gf, d)
+    elif variant == "eq2":
+        return boeing69_eq2_compliance(t1, E1, t2, E2, Ef, d)
+    else:
+        # Legacy Boeing 69 (matches original code)
+        # Note: Legacy function signature is slightly different (takes nu_b), 
+        # but here we can compute nu_b from Ef, Gf if needed, OR just call legacy.
+        # Legacy function: boeing69_compliance(ti, Ei, tj, Ej, Eb, nu_b, diameter...)
+        # We need nu_b. G = E / (2(1+nu)) -> 1+nu = E/2G -> nu = E/2G - 1
+        
+        # Guard against Gf=0 or weird values
+        if Gf > 0:
+            nu_b = (Ef / (2.0 * Gf)) - 1.0
+        else:
+            nu_b = 0.3 # Fallback
+            
+        return boeing69_compliance(t1, E1, t2, E2, Ef, nu_b, d)
+
+
 # -----------------------------------------------------------------------------
 # EMPIRICAL METHODS (Calculate TOTAL compliance of the joint)
 # -----------------------------------------------------------------------------
@@ -155,6 +249,9 @@ def morris_compliance(
 
 __all__ = [
     "boeing69_compliance", 
+    "boeing69_eq1_compliance",
+    "boeing69_eq2_compliance",
+    "boeing_pair_compliance",
     "huth_compliance", 
     "grumman_compliance",
     "swift_douglas_compliance",

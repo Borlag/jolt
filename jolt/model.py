@@ -7,7 +7,10 @@ from typing import Dict, List, Optional, Sequence, Tuple, Set, Any
 
 from .fasteners import (
     boeing69_compliance, 
-    huth_compliance, 
+    boeing69_eq1_compliance,
+    boeing69_eq2_compliance,
+    boeing_pair_compliance,
+    huth_compliance,  
     grumman_compliance, 
     swift_douglas_compliance, 
     tate_rosenfeld_compliance,
@@ -695,12 +698,45 @@ class Joint1D:
             return topo_raw
 
         method = fastener.method.lower()
+        
+        # Explicit combined modes (method + topology in one string)
+        # e.g., "Boeing69_chain" or "Huth_star"
+        # New Eq1/Eq2 support
+        if "boeing69_eq1_chain" in method or "boeing_eq1_chain" in method:
+            return "boeing_chain_eq1"
+        if "boeing69_eq2_chain" in method or "boeing_eq2_chain" in method:
+            return "boeing_chain_eq2"
+        if "boeing69_eq1_star" in method or "boeing_eq1_star" in method:
+            return "boeing_star_eq1"
+        if "boeing69_eq2_star" in method or "boeing_eq2_star" in method:
+            return "boeing_star_eq2"
+
+        if "boeing69_chain" in method:
+            return "boeing_chain"
+        if "boeing69_star_scaled" in method:
+            return "boeing_star_scaled"
+        if "boeing69_star_raw" in method:
+            return "boeing_star_raw"
+        if "huth_chain" in method:
+            return "empirical_chain"
+        if "huth_star" in method:
+            return "empirical_star"
+        
+        # Existing behavior (backward-compatible)
         if "boeing_chain" in method:
             return "boeing_chain"
         if "boeing_star_scaled" in method:
             return "boeing_star_scaled"
         if "boeing_star_raw" in method:
             return "boeing_star_raw"
+        if "boeing_chain_eq1" in method:
+            return "boeing_chain_eq1"
+        if "boeing_chain_eq2" in method:
+            return "boeing_chain_eq2"
+        if "boeing_star_eq1" in method:
+            return "boeing_star_eq1"
+        if "boeing_star_eq2" in method:
+            return "boeing_star_eq2"
         if "empirical_chain" in method:
             return "empirical_chain"
         if "empirical_star" in method:
@@ -782,11 +818,28 @@ class Joint1D:
 
         # --- Component Methods (Boeing) ---
         else: 
-            return boeing69_compliance(
-                ti=t_i, Ei=plate_i.E,
-                tj=t_j, Ej=plate_j.E,
-                Eb=fastener.Eb, nu_b=fastener.nu_b,
-                diameter=fastener.D
+            # Determine variant
+            variant = "legacy"
+            # Check method AND topology for variant selection
+            # This allows solve_with_topologies to switch formulas via topology override
+            check_str = (method + " " + (fastener.topology or "")).lower()
+            
+            if "boeing1" in check_str or "eq1" in check_str:
+                variant = "eq1"
+            elif "boeing2" in check_str or "eq2" in check_str:
+                variant = "eq2"
+
+            # Check for Gf or calculate from nu_b
+            # If fastener has Gf stored? No, FastenerRow has Eb, nu_b.
+            # G = E / 2(1+nu)
+            Gf = fastener.Eb / (2.0 * (1.0 + fastener.nu_b))
+
+            return boeing_pair_compliance(
+                t1=t_i, E1=plate_i.E,
+                t2=t_j, E2=plate_j.E,
+                Ef=fastener.Eb, Gf=Gf,
+                d=fastener.D,
+                variant=variant
             )
 
 
@@ -855,8 +908,14 @@ class Joint1D:
         Methodology:
         1. N=2 (2 plates): Strictly enforce symmetry. C1 = C2 = C_pair / 2.
            This ensures exact matching for simple 2-layer joints.
+        
+        2. Boeing star topologies (N>=3): Use pure single-layer base compliances
+           from the Boeing/ESDU model (D6-29942, ESDU 98012). The pairwise
+           compliances calculated in _assemble_boeing_star_raw are retained for
+           interface reporting but are not used in the branch decomposition.
+           Reference: Rutman (1994), ESDU 98012.
            
-        2. N>=3 (3+ plates): Constrained Least Squares.
+        3. Other methods (N>=3): Constrained Least Squares.
            Find C_i that minimize sum((C_i - C_base_i)^2)
            Subject to: C_i + C_{i+1} = C_pair_i
            
@@ -875,11 +934,25 @@ class Joint1D:
         if n_branches == 2:
             c_pair = pairwise_compliances[0]
             return [c_pair / 2.0, c_pair / 2.0]
+        
+        # Case 2: Boeing star – use pure single-layer base compliances
+        # For Boeing star topology, branch compliances are computed directly from
+        # the single-layer Boeing/ESDU model. No decomposition of pairwise compliances
+        # is needed because the pairwise values are only used for interface reporting.
+        topology = self._fastener_topology(fastener)
+        is_boeing = "boeing" in fastener.method.lower()
+        if is_boeing and "star" in topology:
+            base_compliances = [
+                max(self._calculate_base_compliance(plate, fastener, 
+                    self._thickness_at_row(plate, row_index)), 1e-12)
+                for plate in plates
+            ]
+            return base_compliances
             
-        # Case 2: Multi-layer Stack (Constrained Least Squares)
+        # Case 3: Multi-layer Stack - Constrained Least Squares (non-Boeing)
         
         # 1. Calculate Base Compliances (Prior)
-        base_compliances = []
+        base_compliances: List[float] = []
         is_boeing = "boeing" in fastener.method.lower()
 
         for plate in plates:
@@ -1356,11 +1429,11 @@ class Joint1D:
             if not plates_at_row:
                 continue
             topology = self._fastener_topology(fastener)
-            if topology == "boeing_chain":
+            if topology in ("boeing_chain", "boeing_chain_eq1", "boeing_chain_eq2"):
                 self._assemble_boeing_chain(plates_at_row, connection_pairs, fastener, springs, stiffness_matrix)
             elif topology == "boeing_star_scaled":
                 self._assemble_boeing_star_scaled(plates_at_row, connection_pairs, fastener, springs, stiffness_matrix)
-            elif topology == "boeing_star_raw":
+            elif topology in ("boeing_star_raw", "boeing_star_eq1", "boeing_star_eq2"):
                 self._assemble_boeing_star_raw(plates_at_row, connection_pairs, fastener, springs, stiffness_matrix)
             elif topology == "empirical_chain":
                 self._assemble_empirical_chain(plates_at_row, connection_pairs, fastener, springs, stiffness_matrix)

@@ -9,10 +9,42 @@ from jolt import JointConfiguration, JointSolution, Plate, FastenerRow
 from jolt.units import UnitSystem, UnitConverter
 from jolt.visualization_plotly import render_joint_diagram_plotly
 
-def render_comparison_tab(saved_models: List[JointConfiguration], current_units: str):
-    """Render the Model Comparison tab."""
+# Import feature flag
+from . import ENABLE_JOLT_BENCHMARKS
+
+# Conditionally import benchmark modules only when feature is enabled
+if ENABLE_JOLT_BENCHMARKS:
+    from jolt.benchmarks import (
+        D06_ROW_A_LABEL,
+        JOLT_FASTENER_REFS,
+        compare_solution_to_jolt,
+    )
+    from jolt.analysis import (
+        TOPOLOGY_VARIANTS_BOEING,
+        solve_with_topologies,
+    )
+
+def render_comparison_tab(
+    saved_models: List[JointConfiguration], 
+    current_units: str,
+    current_model: Optional[Dict[str, Any]] = None,
+):
+    """Render the Model Comparison tab.
+    
+    Args:
+        saved_models: List of saved JointConfiguration objects
+        current_units: Current unit system string
+        current_model: Optional dict with current model definition from sidebar
+            Keys: pitches, plates, fasteners, supports, point_forces
+    """
     
     st.header("Model Comparison")
+    
+    # --- JOLT Benchmark Section (guarded by feature flag) ---
+    if ENABLE_JOLT_BENCHMARKS:
+        _render_jolt_benchmark_section(current_model, current_units)
+    
+    st.markdown("---")
     
     if not saved_models:
         st.info("No saved models available. Please solve and save a model in the 'Model Definition' tab, or import a JSON file.")
@@ -544,3 +576,169 @@ def _render_single_model_summary(model: JointConfiguration, current_units: str):
         c3.metric("Max Bypass", f"{summary.get('max_bypass', 0):.1f}")
     else:
         st.write("No pre-computed summary available.")
+
+
+def _render_jolt_benchmark_section(current_model: Optional[Dict[str, Any]], current_units: str):
+    """Render the JOLT benchmark comparison section.
+    
+    This function is only called when ENABLE_JOLT_BENCHMARKS is True.
+    
+    Args:
+        current_model: Dict with current model definition (pitches, plates, fasteners, supports, point_forces)
+        current_units: Current unit system string
+    """
+    with st.expander("🔬 Topology / JOLT Benchmark Comparison", expanded=False):
+        st.markdown("""
+        Compare different fastener topology variants against Boeing JOLT reference values.
+        This feature runs the current model with multiple topology settings and shows how 
+        each compares to the JOLT reference data for Case D06 Row A.
+        """)
+        
+        # Check if we have a valid model to work with
+        if current_model is None:
+            st.info("No model loaded. Please configure a model in the sidebar first.")
+            return
+        
+        pitches = current_model.get("pitches", [])
+        plates = current_model.get("plates", [])
+        fasteners = current_model.get("fasteners", [])
+        supports = current_model.get("supports", [])
+        point_forces = current_model.get("point_forces", [])
+        
+        if not plates or not fasteners:
+            st.info("Model is incomplete. Please define plates and fasteners in the sidebar.")
+            return
+        
+        # Case label selection (locked to D06 Row A for now)
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            case_label = st.text_input(
+                "Case Label",
+                value=D06_ROW_A_LABEL,
+                disabled=True,
+                help="Currently locked to Case_5_3_elements_row_a (Boeing JOLT D06 Row A)"
+            )
+        
+        with col2:
+            # Topology variant selection
+            selected_topologies = st.multiselect(
+                "Select Topology Variants",
+                options=TOPOLOGY_VARIANTS_BOEING,
+                default=TOPOLOGY_VARIANTS_BOEING,
+                help="Choose which topology variants to compare"
+            )
+        
+        if not selected_topologies:
+            st.warning("Select at least one topology variant to compare.")
+            return
+        
+        # Run comparison button
+        if st.button("🚀 Run Topology Comparison", key="run_jolt_benchmark"):
+            with st.spinner("Running solver for each topology..."):
+                try:
+                    # Run solve_with_topologies
+                    results = solve_with_topologies(
+                        pitches=pitches,
+                        plates=plates,
+                        fasteners=fasteners,
+                        supports=supports,
+                        point_forces=point_forces,
+                        topology_variants=selected_topologies,
+                    )
+                    
+                    # Store results in session state
+                    st.session_state["jolt_benchmark_results"] = results
+                    st.success(f"Completed analysis for {len(results)} topology variants.")
+                    
+                except Exception as e:
+                    st.error(f"Analysis failed: {e}")
+                    return
+        
+        # Display results if available
+        if "jolt_benchmark_results" in st.session_state:
+            results = st.session_state["jolt_benchmark_results"]
+            
+            st.subheader("Comparison Results")
+            
+            # Build comparison table data
+            table_data = []
+            
+            for topo_name, solution in results.items():
+                # Compare against JOLT references
+                comparisons = compare_solution_to_jolt(solution, case_label)
+                
+                for (row, plate_i, plate_j), metrics in comparisons.items():
+                    table_data.append({
+                        "Topology": topo_name,
+                        "Row": row,
+                        "Plate_i": plate_i,
+                        "Plate_j": plate_j,
+                        "JOLT_ref [lb]": f"{metrics['ref']:.1f}",
+                        "Model [lb]": f"{metrics['model']:.1f}",
+                        "Δ [lb]": f"{metrics['abs_err']:+.1f}",
+                        "Δ [%]": f"{metrics['rel_err_pct']:+.1f}%",
+                    })
+            
+            if table_data:
+                df = pd.DataFrame(table_data)
+                
+                # Styling function for highlighting large deltas
+                def highlight_delta(val):
+                    if isinstance(val, str) and val.endswith("%"):
+                        try:
+                            pct = float(val.replace("%", "").replace("+", ""))
+                            if abs(pct) > 10:
+                                return "color: red; font-weight: bold"
+                            elif abs(pct) > 5:
+                                return "color: orange"
+                        except:
+                            pass
+                    return ""
+                
+                st.dataframe(
+                    df.style.map(highlight_delta, subset=["Δ [%]"]),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                
+                # Summary statistics per topology
+                st.subheader("Summary by Topology")
+                summary_data = []
+                
+                for topo_name, solution in results.items():
+                    comparisons = compare_solution_to_jolt(solution, case_label)
+                    if comparisons:
+                        abs_errors = [abs(m["abs_err"]) for m in comparisons.values()]
+                        rel_errors = [abs(m["rel_err_pct"]) for m in comparisons.values()]
+                        
+                        summary_data.append({
+                            "Topology": topo_name,
+                            "Max |Δ| [lb]": f"{max(abs_errors):.1f}",
+                            "Mean |Δ| [lb]": f"{sum(abs_errors)/len(abs_errors):.1f}",
+                            "Max |Δ| [%]": f"{max(rel_errors):.1f}%",
+                            "RMS Δ [%]": f"{(sum(e**2 for e in rel_errors)/len(rel_errors))**0.5:.1f}%",
+                        })
+                
+                if summary_data:
+                    df_summary = pd.DataFrame(summary_data)
+                    st.dataframe(df_summary, use_container_width=True, hide_index=True)
+                
+            else:
+                st.warning("No matching interfaces found in JOLT reference data. "
+                          "Make sure the model matches Case_5_3_elements_row_a geometry.")
+        
+        # Show reference data
+        with st.expander("📋 JOLT Reference Values", expanded=False):
+            st.markdown("**Boeing JOLT D06 Row A Reference Fastener Loads:**")
+            ref_data = []
+            for (case, row, pi, pj), load in JOLT_FASTENER_REFS.items():
+                if case == case_label:
+                    ref_data.append({
+                        "Row": row,
+                        "Plate i": pi,
+                        "Plate j": pj,
+                        "Reference Load [lb]": load,
+                    })
+            if ref_data:
+                st.dataframe(pd.DataFrame(ref_data), use_container_width=True, hide_index=True)
+
