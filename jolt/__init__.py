@@ -12,7 +12,7 @@ from .model import (
     BearingBypassResult,
     ReactionResult,
 )
-from .examples import figure76_example, figure76_beam_idealized_example
+from .examples import case_5_3_elements_example
 from .config import JointConfiguration, load_joint_from_json
 
 __all__ = [
@@ -28,8 +28,7 @@ __all__ = [
     "BarResult",
     "BearingBypassResult",
     "ReactionResult",
-    "figure76_example",
-    "figure76_beam_idealized_example",
+    "case_5_3_elements_example",
     "JointConfiguration",
     "load_joint_from_json",
 ]

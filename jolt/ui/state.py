@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 from dataclasses import replace
 import json
 import streamlit as st
-from jolt import JointConfiguration, Plate, FastenerRow, figure76_example, JointSolution
+from jolt import JointConfiguration, Plate, FastenerRow, case_5_3_elements_example, JointSolution
 from jolt.units import UnitSystem, UnitConverter
 
 
@@ -272,7 +272,7 @@ def initialize_session_state():
             st.session_state.plates,
             st.session_state.fasteners,
             st.session_state.supports,
-        ) = figure76_example()
+        ) = case_5_3_elements_example()
         st.session_state["n_rows"] = len(st.session_state.pitches)
 
     if "saved_models" not in st.session_state:

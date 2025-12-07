@@ -1134,19 +1134,19 @@ def _render_saved_configs_section():
     else:
         st.info("No saved configurations yet. Save one after solving a case.")
 
-def _load_example_figure76():
-    from jolt import figure76_example
+def _load_example_case_5_3():
+    from jolt import case_5_3_elements_example
     clear_configuration_widget_state()
     (
         st.session_state.pitches,
         st.session_state.plates,
         st.session_state.fasteners,
         st.session_state.supports,
-    ) = figure76_example()
+    ) = case_5_3_elements_example()
     st.session_state.point_forces = []
-    st.session_state.config_label = "JOLT Figure 76"
+    st.session_state.config_label = "Case 5.3 Elements"
     st.session_state.config_unloading = ""
-    st.session_state["_last_loaded_config"] = "JOLT Figure 76"
+    st.session_state["_last_loaded_config"] = "Case 5.3 Elements"
     st.session_state["n_rows"] = len(st.session_state.pitches)
     st.rerun()
 

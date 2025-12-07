@@ -87,7 +87,7 @@ with tab1:
 
 
     elif not st.session_state.get("solution"):
-        st.info("Соберите схему в левой панели и нажмите **Solve**. Для воспроизведения скрина используйте **Load ▶ JOLT Figure 76**.")
+        st.info("Соберите схему в левой панели и нажмите **Solve**. Для воспроизведения скрина используйте пример **Case 5.3 Elements**.")
 
 with tab2:
     render_comparison_tab(
