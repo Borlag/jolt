@@ -85,9 +85,10 @@ def test_fastener_custom_interfaces():
         k_manual=1.0e5,
         connections=[(0, 2)],
     )
-    model_invalid = Joint1D(pitches=pitches, plates=plates, fasteners=[fastener_invalid])
-    with pytest.raises(ValueError):
-        model_invalid.solve(supports=supports)
+    model_valid_gap = Joint1D(pitches=pitches, plates=plates, fasteners=[fastener_invalid])
+    # Should now pass
+    solution_gap = model_valid_gap.solve(supports=supports)
+    assert [(item.plate_i, item.plate_j) for item in solution_gap.fasteners] == [(0, 2)]
 
 
 def test_joint_configuration_roundtrip(tmp_path):

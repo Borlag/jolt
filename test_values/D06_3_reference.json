@@ -1,0 +1,368 @@
+{
+    "model_id": "D06_3",
+    "description": "Boeing JOLT reference results for 4-layer model (Shear Tie, Tear Strap, Skin, Doubler)",
+    "source": "JOLT Screenshots (image_809712.jpg)",
+    "formulas": {
+        "boeing": {
+            "fasteners": [
+                {
+                    "row": 2,
+                    "plate_i": "Shear Tie",
+                    "plate_j": "Tear Strap",
+                    "force": 188.2,
+                    "stiffness": 154000.0,
+                    "bearing_upper": 188.0,
+                    "bearing_lower": 15.0
+                },
+                {
+                    "row": 2,
+                    "plate_i": "Tear Strap",
+                    "plate_j": "Skin",
+                    "force": 172.9,
+                    "stiffness": 146000.0,
+                    "bearing_upper": 15.0,
+                    "bearing_lower": 155.0
+                },
+                {
+                    "row": 2,
+                    "plate_i": "Skin",
+                    "plate_j": "Doubler",
+                    "force": 18.4,
+                    "stiffness": 140000.0,
+                    "bearing_upper": 155.0,
+                    "bearing_lower": 18.0
+                },
+                {
+                    "row": 3,
+                    "plate_i": "Shear Tie",
+                    "plate_j": "Tear Strap",
+                    "force": 2.2,
+                    "stiffness": 154000.0,
+                    "bearing_upper": 2.0,
+                    "bearing_lower": 66.0
+                },
+                {
+                    "row": 3,
+                    "plate_i": "Tear Strap",
+                    "plate_j": "Skin",
+                    "force": 64.2,
+                    "stiffness": 146000.0,
+                    "bearing_upper": 66.0,
+                    "bearing_lower": 201.0
+                },
+                {
+                    "row": 3,
+                    "plate_i": "Skin",
+                    "plate_j": "Doubler",
+                    "force": 136.6,
+                    "stiffness": 140000.0,
+                    "bearing_upper": 201.0,
+                    "bearing_lower": 137.0
+                },
+                {
+                    "row": 4,
+                    "plate_i": "Shear Tie",
+                    "plate_j": "Tear Strap",
+                    "force": 54.5,
+                    "stiffness": 154000.0,
+                    "bearing_upper": 55.0,
+                    "bearing_lower": 26.0
+                },
+                {
+                    "row": 4,
+                    "plate_i": "Tear Strap",
+                    "plate_j": "Skin",
+                    "force": 28.6,
+                    "stiffness": 146000.0,
+                    "bearing_upper": 26.0,
+                    "bearing_lower": 161.0
+                },
+                {
+                    "row": 4,
+                    "plate_i": "Skin",
+                    "plate_j": "Doubler",
+                    "force": 132.9,
+                    "stiffness": 140000.0,
+                    "bearing_upper": 161.0,
+                    "bearing_lower": 133.0
+                },
+                {
+                    "row": 5,
+                    "plate_i": "Shear Tie",
+                    "plate_j": "Tear Strap",
+                    "force": 135.9,
+                    "stiffness": 154000.0,
+                    "bearing_upper": 136.0,
+                    "bearing_lower": 128.0
+                },
+                {
+                    "row": 5,
+                    "plate_i": "Tear Strap",
+                    "plate_j": "Skin",
+                    "force": 7.6,
+                    "stiffness": 146000.0,
+                    "bearing_upper": 128.0,
+                    "bearing_lower": 198.0
+                },
+                {
+                    "row": 5,
+                    "plate_i": "Skin",
+                    "plate_j": "Doubler",
+                    "force": 190.1,
+                    "stiffness": 140000.0,
+                    "bearing_upper": 198.0,
+                    "bearing_lower": 190.0
+                }
+            ],
+            "nodes": [
+                {
+                    "plate_name": "Shear Tie",
+                    "row": 2,
+                    "displacement": 0.0016224,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Shear Tie",
+                    "row": 3,
+                    "displacement": 0.0019124,
+                    "net_bypass": 188.2
+                },
+                {
+                    "plate_name": "Shear Tie",
+                    "row": 4,
+                    "displacement": 0.0022058,
+                    "net_bypass": 135.9
+                },
+                {
+                    "plate_name": "Shear Tie",
+                    "row": 5,
+                    "displacement": 0.0024152,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Tear Strap",
+                    "row": 1,
+                    "displacement": 0.0,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Tear Strap",
+                    "row": 2,
+                    "displacement": 0.00087166,
+                    "net_bypass": 622.1
+                },
+                {
+                    "plate_name": "Tear Strap",
+                    "row": 3,
+                    "displacement": 0.0017224,
+                    "net_bypass": 555.7
+                },
+                {
+                    "plate_name": "Tear Strap",
+                    "row": 4,
+                    "displacement": 0.0024823,
+                    "net_bypass": 555.7
+                },
+                {
+                    "plate_name": "Tear Strap",
+                    "row": 5,
+                    "displacement": 0.0032777,
+                    "net_bypass": 581.7
+                },
+                {
+                    "plate_name": "Tear Strap",
+                    "row": 6,
+                    "displacement": 0.0042486,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 1,
+                    "displacement": 0.0,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 2,
+                    "displacement": 0.00026796,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 3,
+                    "displacement": 0.0026411,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 4,
+                    "displacement": 0.0029892,
+                    "net_bypass": 200.8
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 5,
+                    "displacement": 0.0036173,
+                    "net_bypass": 362.3
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 6,
+                    "displacement": 0.0045882,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 1,
+                    "displacement": 0.0,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 2,
+                    "displacement": 0.00073648,
+                    "net_bypass": 459.6
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 3,
+                    "displacement": 0.0014447,
+                    "net_bypass": 323.0
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 4,
+                    "displacement": 0.0019425,
+                    "net_bypass": 190.1
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 5,
+                    "displacement": 0.0022354,
+                    "net_bypass": 0.0
+                }
+            ],
+            "plates": [
+                {
+                    "segment": "1002-1003",
+                    "force": 188.2,
+                    "stiffness": 649000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "1003-1004",
+                    "force": 190.4,
+                    "stiffness": 649000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "1004-1005",
+                    "force": 135.9,
+                    "stiffness": 649000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "2001-2002",
+                    "force": 637.4,
+                    "stiffness": 731000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "2002-2003",
+                    "force": 622.1,
+                    "stiffness": 731000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "2003-2004",
+                    "force": 555.7,
+                    "stiffness": 731000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "2004-2005",
+                    "force": 581.7,
+                    "stiffness": 731000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "2005-2006",
+                    "force": 710.0,
+                    "stiffness": 731000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "3001-3002",
+                    "force": 154.6,
+                    "stiffness": 577000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "3002-3003",
+                    "force": 0.0,
+                    "stiffness": 577000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "3003-3004",
+                    "force": 200.8,
+                    "stiffness": 577000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "3004-3005",
+                    "force": 362.3,
+                    "stiffness": 577000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "3005-3006",
+                    "force": 560.0,
+                    "stiffness": 577000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "4001-4002",
+                    "force": 477.9,
+                    "stiffness": 649000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "4002-4003",
+                    "force": 459.6,
+                    "stiffness": 649000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "4003-4004",
+                    "force": 323.0,
+                    "stiffness": 649000.0,
+                    "modulus": 10300000.0
+                },
+                {
+                    "segment": "4004-4005",
+                    "force": 190.1,
+                    "stiffness": 649000.0,
+                    "modulus": 10300000.0
+                }
+            ],
+            "reactions": [
+                {
+                    "plate_name": "Tear Strap",
+                    "local_node": 1,
+                    "reaction": 637.4
+                },
+                {
+                    "plate_name": "Skin",
+                    "local_node": 1,
+                    "reaction": 154.6
+                },
+                {
+                    "plate_name": "Doubler",
+                    "local_node": 1,
+                    "reaction": 477.9
+                }
+            ]
+        }
+    }
+}

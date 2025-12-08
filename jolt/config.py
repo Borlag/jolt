@@ -65,6 +65,8 @@ def plate_to_dict(plate: Plate) -> Dict[str, Any]:
         "Fx_left": plate.Fx_left,
         "Fx_right": plate.Fx_right,
         "fatigue_strength": getattr(plate, "fatigue_strength", None),
+        "widths": getattr(plate, "widths", None),
+        "thicknesses": getattr(plate, "thicknesses", None),
     }
     return data
 
@@ -103,7 +105,9 @@ def plate_from_dict(data: Dict[str, Any]) -> Plate:
         A_strip=_to_float_list(data.get("A_strip", [])),
         Fx_left=float(data.get("Fx_left", 0.0)),
         Fx_right=float(data.get("Fx_right", 0.0)),
-        fatigue_strength=float(fs) if fs is not None else None
+        fatigue_strength=float(fs) if fs is not None else None,
+        widths=_to_float_list(data.get("widths", [])) if data.get("widths") else None,
+        thicknesses=_to_float_list(data.get("thicknesses", [])) if data.get("thicknesses") else None
     )
 
 

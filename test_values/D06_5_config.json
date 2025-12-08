@@ -1,0 +1,159 @@
+{
+  "label": "D06_5",
+  "unloading": "",
+  "description": "Saved on 2025-12-08 01:29:34.294248",
+  "units": "Imperial",
+  "pitches": [
+    1.25,
+    1.25,
+    1.25,
+    1.25,
+    1.25,
+    1.25
+  ],
+  "plates": [
+    {
+      "name": "Tripler",
+      "E": 9500000.0,
+      "t": 0.063,
+      "first_row": 3,
+      "last_row": 6,
+      "A_strip": [
+        0.07,
+        0.07,
+        0.07
+      ],
+      "Fx_left": 0.0,
+      "Fx_right": 0.0,
+      "fatigue_strength": null,
+      "widths": null,
+      "thicknesses": null
+    },
+    {
+      "name": "Doubler",
+      "E": 9500000.0,
+      "t": 0.04,
+      "first_row": 2,
+      "last_row": 6,
+      "A_strip": [
+        0.045,
+        0.045,
+        0.045,
+        0.045
+      ],
+      "Fx_left": 0.0,
+      "Fx_right": 0.0,
+      "fatigue_strength": null,
+      "widths": null,
+      "thicknesses": null
+    },
+    {
+      "name": "Skin",
+      "E": 9500000.0,
+      "t": 0.08,
+      "first_row": 1,
+      "last_row": 5,
+      "A_strip": [
+        0.09,
+        0.09,
+        0.09,
+        0.09
+      ],
+      "Fx_left": 765.0,
+      "Fx_right": 0.0,
+      "fatigue_strength": null,
+      "widths": null,
+      "thicknesses": null
+    }
+  ],
+  "fasteners": [
+    {
+      "row": 2,
+      "D": 0.203,
+      "Eb": 16900000.0,
+      "nu_b": 0.3,
+      "method": "Boeing69",
+      "topology": null,
+      "name": "",
+      "marker_symbol": "circle",
+      "connections": [
+        [
+          1,
+          2
+        ]
+      ]
+    },
+    {
+      "row": 3,
+      "D": 0.203,
+      "Eb": 16900000.0,
+      "nu_b": 0.3,
+      "method": "Boeing69",
+      "topology": null,
+      "name": "",
+      "marker_symbol": "circle",
+      "connections": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          2
+        ]
+      ]
+    },
+    {
+      "row": 4,
+      "D": 0.203,
+      "Eb": 16900000.0,
+      "nu_b": 0.3,
+      "method": "Boeing69",
+      "topology": null,
+      "name": "",
+      "marker_symbol": "circle",
+      "connections": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          2
+        ]
+      ]
+    },
+    {
+      "row": 5,
+      "D": 0.203,
+      "Eb": 16900000.0,
+      "nu_b": 0.3,
+      "method": "Boeing69",
+      "topology": null,
+      "name": "",
+      "marker_symbol": "circle",
+      "connections": [
+        [
+          0,
+          1
+        ],
+        [
+          1,
+          2
+        ]
+      ]
+    }
+  ],
+  "supports": [
+    [
+      0,
+      3,
+      0.0
+    ],
+    [
+      1,
+      4,
+      0.0
+    ]
+  ]
+}

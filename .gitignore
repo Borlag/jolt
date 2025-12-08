@@ -142,3 +142,11 @@ cython_debug/
 # IDEs
 .vscode/
 .idea/
+
+# Debug and Trash
+debug_*.py
+debug_*.txt
+error.txt
+test_output.txt
+reports/
+

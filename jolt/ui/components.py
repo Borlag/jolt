@@ -424,7 +424,12 @@ def _render_plates_section(units: Dict[str, str]):
                     if not plate.thicknesses or len(plate.thicknesses) != segments:
                         plate.thicknesses = [plate.t] * segments
                         
-                    same_dims = st.checkbox("Constant Width & Thickness", value=True, key=f"sameWT_{idx}_v{st.session_state.get('_widget_version', 0)}")
+                    # Auto-detect if dims are constant
+                    is_const_w = all(abs(w - plate.widths[0]) < 1e-9 for w in plate.widths) if plate.widths else True
+                    is_const_t = all(abs(t - plate.thicknesses[0]) < 1e-9 for t in plate.thicknesses) if plate.thicknesses else True
+                    default_same = is_const_w and is_const_t
+                        
+                    same_dims = st.checkbox("Constant Width & Thickness", value=default_same, key=f"sameWT_{idx}_v{st.session_state.get('_widget_version', 0)}")
                     
                     if same_dims:
                         c_w, c_t = st.columns(2)
@@ -444,7 +449,10 @@ def _render_plates_section(units: Dict[str, str]):
                             plate.thicknesses[seg] = t_val
                             plate.A_strip[seg] = w_val * t_val
                 else:
-                    same_area = st.checkbox("Same bypass area for all segments", value=True, key=f"sameA_{idx}_v{st.session_state.get('_widget_version', 0)}")
+                    # Auto-detect if areas are constant
+                    is_const_a = all(abs(a - plate.A_strip[0]) < 1e-9 for a in plate.A_strip) if plate.A_strip else True
+                    
+                    same_area = st.checkbox("Same bypass area for all segments", value=is_const_a, key=f"sameA_{idx}_v{st.session_state.get('_widget_version', 0)}")
                     if same_area:
                         default_area = plate.A_strip[0] if plate.A_strip else 0.05
                         area_val = st.number_input(

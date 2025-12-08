@@ -1,0 +1,274 @@
+{
+  "model_id": "D06_2",
+  "description": "Boeing JOLT reference results for Case 5.3 Elements Row A (D06)",
+  "source": "Boeing JOLT Course 472 Materials",
+  "formulas": {
+    "boeing": {
+      "fasteners": [
+        {
+          "row": 2,
+          "plate_i": "Doubler",
+          "plate_j": "Skin",
+          "force": 288.0,
+          "stiffness": 152000.0,
+          "bearing_upper": 288.0,
+          "bearing_lower": 288.0
+        },
+        {
+          "row": 3,
+          "plate_i": "Doubler",
+          "plate_j": "Skin",
+          "force": 124.6,
+          "stiffness": 152000.0,
+          "bearing_upper": 125.0,
+          "bearing_lower": 125.0
+        },
+        {
+          "row": 4,
+          "plate_i": "Doubler",
+          "plate_j": "Skin",
+          "force": 49.0,
+          "stiffness": 152000.0,
+          "bearing_upper": 49.0,
+          "bearing_lower": 49.0
+        },
+        {
+          "row": 5,
+          "plate_i": "Doubler",
+          "plate_j": "Skin",
+          "force": 0.0,
+          "stiffness": 152000.0,
+          "bearing_upper": 0.0,
+          "bearing_lower": 0.0
+        },
+        {
+          "row": 6,
+          "plate_i": "Doubler",
+          "plate_j": "Skin",
+          "force": 49.0,
+          "stiffness": 152000.0,
+          "bearing_upper": 49.0,
+          "bearing_lower": 49.0
+        },
+        {
+          "row": 7,
+          "plate_i": "Doubler",
+          "plate_j": "Skin",
+          "force": 124.6,
+          "stiffness": 152000.0,
+          "bearing_upper": 125.0,
+          "bearing_lower": 125.0
+        },
+        {
+          "row": 8,
+          "plate_i": "Doubler",
+          "plate_j": "Skin",
+          "force": 288.1,
+          "stiffness": 152000.0,
+          "bearing_upper": 268.0,
+          "bearing_lower": 268.0
+        }
+      ],
+      "nodes": [
+        {
+          "plate_name": "Doubler",
+          "row": 1,
+          "displacement": 0.0036738,
+          "net_bypass": 0.0
+        },
+        {
+          "plate_name": "Doubler",
+          "row": 2,
+          "displacement": 0.0041239,
+          "net_bypass": 268.0
+        },
+        {
+          "plate_name": "Doubler",
+          "row": 3,
+          "displacement": 0.0047832,
+          "net_bypass": 392.7
+        },
+        {
+          "plate_name": "Doubler",
+          "row": 4,
+          "displacement": 0.0055248,
+          "net_bypass": 441.7
+        },
+        {
+          "plate_name": "Doubler",
+          "row": 5,
+          "displacement": 0.0062084,
+          "net_bypass": 392.7
+        },
+        {
+          "plate_name": "Doubler",
+          "row": 6,
+          "displacement": 0.0069258,
+          "net_bypass": 268.1
+        },
+        {
+          "plate_name": "Doubler",
+          "row": 7,
+          "displacement": 0.007378,
+          "net_bypass": 0.0
+        },
+        {
+          "plate_name": "Skin",
+          "row": 1,
+          "displacement": 0.0,
+          "net_bypass": 0.0
+        },
+        {
+          "plate_name": "Skin",
+          "row": 2,
+          "displacement": 0.0019087,
+          "net_bypass": 731.9
+        },
+        {
+          "plate_name": "Skin",
+          "row": 3,
+          "displacement": 0.0033023,
+          "net_bypass": 607.3
+        },
+        {
+          "plate_name": "Skin",
+          "row": 4,
+          "displacement": 0.0044802,
+          "net_bypass": 558.3
+        },
+        {
+          "plate_name": "Skin",
+          "row": 5,
+          "displacement": 0.0055249,
+          "net_bypass": 558.3
+        },
+        {
+          "plate_name": "Skin",
+          "row": 6,
+          "displacement": 0.0065895,
+          "net_bypass": 558.3
+        },
+        {
+          "plate_name": "Skin",
+          "row": 7,
+          "displacement": 0.0077475,
+          "net_bypass": 607.3
+        },
+        {
+          "plate_name": "Skin",
+          "row": 8,
+          "displacement": 0.0091432,
+          "net_bypass": 732.0
+        },
+        {
+          "plate_name": "Skin",
+          "row": 9,
+          "displacement": 0.0,
+          "net_bypass": 0.0
+        }
+      ],
+      "plates": [
+        {
+          "segment": "1001-1002",
+          "force": 288.0,
+          "stiffness": 598000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "1002-1003",
+          "force": 392.7,
+          "stiffness": 598000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "1003-1004",
+          "force": 441.7,
+          "stiffness": 598000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "1004-1005",
+          "force": 441.7,
+          "stiffness": 598000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "1005-1006",
+          "force": 392.7,
+          "stiffness": 598000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "1006-1007",
+          "force": 288.1,
+          "stiffness": 598000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "2001-2002",
+          "force": 999.9,
+          "stiffness": 524000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "2002-2003",
+          "force": 731.9,
+          "stiffness": 524000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "2003-2004",
+          "force": 607.3,
+          "stiffness": 524000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "2004-2005",
+          "force": 558.3,
+          "stiffness": 524000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "2005-2006",
+          "force": 558.3,
+          "stiffness": 524000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "2006-2007",
+          "force": 607.3,
+          "stiffness": 524000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "2007-2008",
+          "force": 732.0,
+          "stiffness": 524000.0,
+          "modulus": 10000000.0
+        },
+        {
+          "segment": "2008-2009",
+          "force": 1000.0,
+          "stiffness": 524000.0,
+          "modulus": 10000000.0
+        }
+      ],
+      "loads": [
+        {
+          "element": "Skin",
+          "row": 9,
+          "incoming_load": 1000.0,
+          "bypass_load": 0.0,
+          "load_transfer": 1000.0
+        }
+      ],
+      "reactions": [
+        {
+          "plate_name": "Skin",
+          "local_node": 1,
+          "reaction": 999.9
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,399 @@
+{
+    "model_id": "D06_4",
+    "description": "Boeing JOLT reference results for 4-layer model (Tripler, Doubler, Skin, Strap)",
+    "source": "Boeing JOLT Course Materials (Screenshots)",
+    "formulas": {
+        "boeing": {
+            "fasteners": [
+                {
+                    "row": 2,
+                    "plate_i": "Doubler",
+                    "plate_j": "Skin",
+                    "force": 104.3,
+                    "stiffness": 95900.0,
+                    "bearing_upper": 104.0,
+                    "bearing_lower": 104.0
+                },
+                {
+                    "row": 3,
+                    "plate_i": "Tripler",
+                    "plate_j": "Doubler",
+                    "force": 91.2,
+                    "stiffness": 115000.0,
+                    "bearing_upper": 91.0,
+                    "bearing_lower": 7.0
+                },
+                {
+                    "row": 3,
+                    "plate_i": "Doubler",
+                    "plate_j": "Skin",
+                    "force": 98.4,
+                    "stiffness": 95900.0,
+                    "bearing_upper": 7.0,
+                    "bearing_lower": 98.0
+                },
+                {
+                    "row": 4,
+                    "plate_i": "Tripler",
+                    "plate_j": "Doubler",
+                    "force": 50.2,
+                    "stiffness": 115000.0,
+                    "bearing_upper": 50.0,
+                    "bearing_lower": 8.0
+                },
+                {
+                    "row": 4,
+                    "plate_i": "Doubler",
+                    "plate_j": "Skin",
+                    "force": 58.1,
+                    "stiffness": 95900.0,
+                    "bearing_upper": 8.0,
+                    "bearing_lower": 58.0
+                },
+                {
+                    "row": 5,
+                    "plate_i": "Tripler",
+                    "plate_j": "Doubler",
+                    "force": 38.5,
+                    "stiffness": 144000.0,
+                    "bearing_upper": 39.0,
+                    "bearing_lower": 42.0
+                },
+                {
+                    "row": 5,
+                    "plate_i": "Doubler",
+                    "plate_j": "Skin",
+                    "force": 80.1,
+                    "stiffness": 119000.0,
+                    "bearing_upper": 42.0,
+                    "bearing_lower": 126.0
+                },
+                {
+                    "row": 5,
+                    "plate_i": "Skin",
+                    "plate_j": "Strap",
+                    "force": 206.3,
+                    "stiffness": 155000.0,
+                    "bearing_upper": 126.0,
+                    "bearing_lower": 206.0
+                },
+                {
+                    "row": 6,
+                    "plate_i": "Tripler",
+                    "plate_j": "Doubler",
+                    "force": 102.8,
+                    "stiffness": 144000.0,
+                    "bearing_upper": 103.0,
+                    "bearing_lower": 78.0
+                },
+                {
+                    "row": 6,
+                    "plate_i": "Doubler",
+                    "plate_j": "Strap",
+                    "force": 180.7,
+                    "stiffness": 155000.0,
+                    "bearing_upper": 78.0,
+                    "bearing_lower": 181.0
+                }
+            ],
+            "nodes": [
+                {
+                    "plate_name": "Tripler",
+                    "row": 3,
+                    "displacement": 0.0019148,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Tripler",
+                    "row": 4,
+                    "displacement": 0.0017434,
+                    "net_bypass": 91.2
+                },
+                {
+                    "plate_name": "Tripler",
+                    "row": 5,
+                    "displacement": 0.0014777,
+                    "net_bypass": 102.8
+                },
+                {
+                    "plate_name": "Tripler",
+                    "row": 6,
+                    "displacement": 0.0012845,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 2,
+                    "displacement": 0.0025189,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 3,
+                    "displacement": 0.0022138,
+                    "net_bypass": 104.3
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 4,
+                    "displacement": 0.0018878,
+                    "net_bypass": 111.5
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 5,
+                    "displacement": 0.0015386,
+                    "net_bypass": 77.9
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 6,
+                    "displacement": 0.0013110,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 1,
+                    "displacement": 0.0,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 2,
+                    "displacement": 0.0036063,
+                    "net_bypass": 282.7
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 3,
+                    "displacement": 0.0027798,
+                    "net_bypass": 184.3
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 4,
+                    "displacement": 0.0022409,
+                    "net_bypass": 126.2
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 5,
+                    "displacement": 0.0018718,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Strap",
+                    "row": 5,
+                    "displacement": 0.00086745,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Strap",
+                    "row": 6,
+                    "displacement": 0.00056578,
+                    "net_bypass": 206.3
+                },
+                {
+                    "plate_name": "Strap",
+                    "row": 7,
+                    "displacement": 0.0,
+                    "net_bypass": 0.0
+                }
+            ],
+            "plates": [
+                {
+                    "segment": "1003-1004",
+                    "force": 91.2,
+                    "stiffness": 532000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "1004-1005",
+                    "force": 141.3,
+                    "stiffness": 532000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "1005-1006",
+                    "force": 102.8,
+                    "stiffness": 532000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "2002-2003",
+                    "force": 104.3,
+                    "stiffness": 342000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "2003-2004",
+                    "force": 111.5,
+                    "stiffness": 342000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "2004-2005",
+                    "force": 119.4,
+                    "stiffness": 342000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "2005-2006",
+                    "force": 77.9,
+                    "stiffness": 342000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "3001-3002",
+                    "force": 387.0,
+                    "stiffness": 342000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "3002-3003",
+                    "force": 282.7,
+                    "stiffness": 342000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "3003-3004",
+                    "force": 184.3,
+                    "stiffness": 342000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "3004-3005",
+                    "force": 126.2,
+                    "stiffness": 342000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "4005-4006",
+                    "force": 206.3,
+                    "stiffness": 684000.0,
+                    "modulus": 9500000.0
+                },
+                {
+                    "segment": "4006-4007",
+                    "force": 387.0,
+                    "stiffness": 684000.0,
+                    "modulus": 9500000.0
+                }
+            ],
+            "loads": [
+                {
+                    "element": "Tripler",
+                    "row": 3,
+                    "incoming_load": 91.0,
+                    "bypass_load": 0.0,
+                    "load_transfer": 91.0
+                },
+                {
+                    "element": "Tripler",
+                    "row": 4,
+                    "incoming_load": 141.0,
+                    "bypass_load": 91.0,
+                    "load_transfer": 50.0
+                },
+                {
+                    "element": "Tripler",
+                    "row": 5,
+                    "incoming_load": 103.0,
+                    "bypass_load": 141.0,
+                    "load_transfer": 39.0
+                },
+                {
+                    "element": "Tripler",
+                    "row": 6,
+                    "incoming_load": 0.0,
+                    "bypass_load": 103.0,
+                    "load_transfer": 103.0
+                },
+                {
+                    "element": "Doubler",
+                    "row": 2,
+                    "incoming_load": 104.0,
+                    "bypass_load": 0.0,
+                    "load_transfer": 104.0
+                },
+                {
+                    "element": "Doubler",
+                    "row": 3,
+                    "incoming_load": 111.0,
+                    "bypass_load": 104.0,
+                    "load_transfer": 7.0
+                },
+                {
+                    "element": "Doubler",
+                    "row": 4,
+                    "incoming_load": 119.0,
+                    "bypass_load": 111.0,
+                    "load_transfer": 8.0
+                },
+                {
+                    "element": "Doubler",
+                    "row": 5,
+                    "incoming_load": 78.0,
+                    "bypass_load": 119.0,
+                    "load_transfer": 42.0
+                },
+                {
+                    "element": "Doubler",
+                    "row": 6,
+                    "incoming_load": 0.0,
+                    "bypass_load": 78.0,
+                    "load_transfer": 78.0
+                },
+                {
+                    "element": "Skin",
+                    "row": 2,
+                    "incoming_load": 283.0,
+                    "bypass_load": 387.0,
+                    "load_transfer": 104.0
+                },
+                {
+                    "element": "Skin",
+                    "row": 3,
+                    "incoming_load": 184.0,
+                    "bypass_load": 283.0,
+                    "load_transfer": 98.0
+                },
+                {
+                    "element": "Skin",
+                    "row": 4,
+                    "incoming_load": 126.0,
+                    "bypass_load": 184.0,
+                    "load_transfer": 58.0
+                },
+                {
+                    "element": "Skin",
+                    "row": 5,
+                    "incoming_load": 0.0,
+                    "bypass_load": 126.0,
+                    "load_transfer": 126.0
+                },
+                {
+                    "element": "Strap",
+                    "row": 5,
+                    "incoming_load": 206.0,
+                    "bypass_load": 0.0,
+                    "load_transfer": 206.0
+                },
+                {
+                    "element": "Strap",
+                    "row": 6,
+                    "incoming_load": 387.0,
+                    "bypass_load": 206.0,
+                    "load_transfer": 181.0
+                }
+            ],
+            "reactions": [
+                {
+                    "plate_name": "Strap",
+                    "local_node": 2,
+                    "reaction": 387.0
+                }
+            ]
+        }
+    }
+}

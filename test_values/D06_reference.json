@@ -1,0 +1,228 @@
+{
+    "model_id": "D06",
+    "description": "Boeing JOLT reference results for Case 5.3 Elements Row A (D06)",
+    "source": "Boeing JOLT Course 472 Materials",
+    "formulas": {
+        "boeing": {
+            "fasteners": [
+                {
+                    "row": 2,
+                    "plate_i": "Doubler",
+                    "plate_j": "Skin",
+                    "force": 364.8,
+                    "stiffness": 152000.0,
+                    "bearing_upper": 365.0,
+                    "bearing_lower": 174.0
+                },
+                {
+                    "row": 2,
+                    "plate_i": "Skin",
+                    "plate_j": "Strap",
+                    "force": 538.4,
+                    "stiffness": 145000.0,
+                    "bearing_upper": 174.0,
+                    "bearing_lower": 538.0
+                },
+                {
+                    "row": 3,
+                    "plate_i": "Doubler",
+                    "plate_j": "Skin",
+                    "force": 371.0,
+                    "stiffness": 152000.0,
+                    "bearing_upper": 371.0,
+                    "bearing_lower": 91.0
+                },
+                {
+                    "row": 3,
+                    "plate_i": "Skin",
+                    "plate_j": "Strap",
+                    "force": 461.6,
+                    "stiffness": 145000.0,
+                    "bearing_upper": 91.0,
+                    "bearing_lower": 462.0
+                },
+                {
+                    "row": 4,
+                    "plate_i": "Doubler",
+                    "plate_j": "Skin",
+                    "force": 264.3,
+                    "stiffness": 152000.0,
+                    "bearing_upper": 264.0,
+                    "bearing_lower": 264.0
+                }
+            ],
+            "nodes": [
+                {
+                    "plate_name": "Doubler",
+                    "row": 2,
+                    "displacement": 0.0035289,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 3,
+                    "displacement": 0.0029144,
+                    "net_bypass": 364.8
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 4,
+                    "displacement": 0.0016791,
+                    "net_bypass": 735.7
+                },
+                {
+                    "plate_name": "Doubler",
+                    "row": 5,
+                    "displacement": 0.0,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 2,
+                    "displacement": 0.0042473,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 3,
+                    "displacement": 0.0039161,
+                    "net_bypass": 173.7
+                },
+                {
+                    "plate_name": "Skin",
+                    "row": 4,
+                    "displacement": 0.0034122,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Strap",
+                    "row": 1,
+                    "displacement": 0.0,
+                    "net_bypass": 0.0
+                },
+                {
+                    "plate_name": "Strap",
+                    "row": 2,
+                    "displacement": 0.0068153,
+                    "net_bypass": 461.8
+                },
+                {
+                    "plate_name": "Strap",
+                    "row": 3,
+                    "displacement": 0.0059352,
+                    "net_bypass": 0.0
+                }
+            ],
+            "plates": [
+                {
+                    "segment": "2002-3003",
+                    "force": 384.8,
+                    "stiffness": 598000.0,
+                    "modulus": 10000000.0
+                },
+                {
+                    "segment": "2003-2004",
+                    "force": 735.7,
+                    "stiffness": 598000.0,
+                    "modulus": 10000000.0
+                },
+                {
+                    "segment": "2004-2005",
+                    "force": 1000.0,
+                    "stiffness": 598000.0,
+                    "modulus": 10000000.0
+                },
+                {
+                    "segment": "3002-3003",
+                    "force": 173.7,
+                    "stiffness": 524000.0,
+                    "modulus": 10000000.0
+                },
+                {
+                    "segment": "3003-3004",
+                    "force": 264.3,
+                    "stiffness": 524000.0,
+                    "modulus": 10000000.0
+                },
+                {
+                    "segment": "4001-4002",
+                    "force": 1000.0,
+                    "stiffness": 524000.0,
+                    "modulus": 10000000.0
+                },
+                {
+                    "segment": "4002-4003",
+                    "force": 461.8,
+                    "stiffness": 524000.0,
+                    "modulus": 10000000.0
+                }
+            ],
+            "loads": [
+                {
+                    "element": "Doubler",
+                    "row": 2,
+                    "incoming_load": 385.0,
+                    "bypass_load": 0.0,
+                    "load_transfer": 385.0
+                },
+                {
+                    "element": "Doubler",
+                    "row": 3,
+                    "incoming_load": 738.0,
+                    "bypass_load": 385.0,
+                    "load_transfer": 371.0
+                },
+                {
+                    "element": "Doubler",
+                    "row": 4,
+                    "incoming_load": 1000.0,
+                    "bypass_load": 738.0,
+                    "load_transfer": 264.0
+                },
+                {
+                    "element": "Skin",
+                    "row": 2,
+                    "incoming_load": 174.0,
+                    "bypass_load": 0.0,
+                    "load_transfer": 174.0
+                },
+                {
+                    "element": "Skin",
+                    "row": 3,
+                    "incoming_load": 284.0,
+                    "bypass_load": 174.0,
+                    "load_transfer": 91.0
+                },
+                {
+                    "element": "Skin",
+                    "row": 4,
+                    "incoming_load": 0.0,
+                    "bypass_load": 264.0,
+                    "load_transfer": 264.0
+                },
+                {
+                    "element": "Strap",
+                    "row": 2,
+                    "incoming_load": 462.0,
+                    "bypass_load": 1000.0,
+                    "load_transfer": 538.0
+                },
+                {
+                    "element": "Strap",
+                    "row": 3,
+                    "incoming_load": 0.0,
+                    "bypass_load": 462.0,
+                    "load_transfer": 462.0
+                }
+            ],
+            "reactions": [
+                {
+                    "plate_name": "Doubler",
+                    "local_node": 3,
+                    "reaction": 1000.0
+                }
+            ]
+        }
+    }
+}
+
