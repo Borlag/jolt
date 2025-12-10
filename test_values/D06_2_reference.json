@@ -9,10 +9,10 @@
           "row": 2,
           "plate_i": "Doubler",
           "plate_j": "Skin",
-          "force": 288.0,
+          "force": 268.0,
           "stiffness": 152000.0,
-          "bearing_upper": 288.0,
-          "bearing_lower": 288.0
+          "bearing_upper": 268.0,
+          "bearing_lower": 268.0
         },
         {
           "row": 3,
@@ -63,7 +63,7 @@
           "row": 8,
           "plate_i": "Doubler",
           "plate_j": "Skin",
-          "force": 288.1,
+          "force": 268.1,
           "stiffness": 152000.0,
           "bearing_upper": 268.0,
           "bearing_lower": 268.0

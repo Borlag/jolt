@@ -1,9 +1,8 @@
 {
   "label": "D06_3",
   "unloading": "",
-  "description": "Cleaned config matching image D00",
-  "units": "Imperial",
   "pitches": [
+    1.0,
     1.0,
     1.0,
     1.0,
@@ -12,7 +11,7 @@
   ],
   "plates": [
     {
-      "name": "Shear Tie",
+      "name": "sheartie",
       "E": 10300000.0,
       "t": 0.063,
       "first_row": 2,
@@ -39,7 +38,7 @@
         0.071
       ],
       "Fx_left": 0.0,
-      "Fx_right": 710.0
+      "Fx_right": -710.0
     },
     {
       "name": "Skin",
@@ -49,13 +48,13 @@
       "last_row": 6,
       "A_strip": [
         0.056,
-        0.056,
+        0.0,
         0.056,
         0.056,
         0.056
       ],
       "Fx_left": 0.0,
-      "Fx_right": 560.0
+      "Fx_right": -560.0
     },
     {
       "name": "Doubler",
@@ -162,17 +161,17 @@
   "supports": [
     [
       1,
-      1,
+      0,
       0.0
     ],
     [
       2,
-      1,
+      0,
       0.0
     ],
     [
       3,
-      1,
+      0,
       0.0
     ]
   ]

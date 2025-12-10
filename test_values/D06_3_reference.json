@@ -1,13 +1,13 @@
 {
     "model_id": "D06_3",
-    "description": "Boeing JOLT reference results for 4-layer model (Shear Tie, Tear Strap, Skin, Doubler)",
+    "description": "Boeing JOLT reference results for 4-layer model (sheartie, Tear Strap, Skin, Doubler)",
     "source": "JOLT Screenshots (image_809712.jpg)",
     "formulas": {
         "boeing": {
             "fasteners": [
                 {
                     "row": 2,
-                    "plate_i": "Shear Tie",
+                    "plate_i": "sheartie",
                     "plate_j": "Tear Strap",
                     "force": 188.2,
                     "stiffness": 154000.0,
@@ -34,7 +34,7 @@
                 },
                 {
                     "row": 3,
-                    "plate_i": "Shear Tie",
+                    "plate_i": "sheartie",
                     "plate_j": "Tear Strap",
                     "force": 2.2,
                     "stiffness": 154000.0,
@@ -61,7 +61,7 @@
                 },
                 {
                     "row": 4,
-                    "plate_i": "Shear Tie",
+                    "plate_i": "sheartie",
                     "plate_j": "Tear Strap",
                     "force": 54.5,
                     "stiffness": 154000.0,
@@ -88,7 +88,7 @@
                 },
                 {
                     "row": 5,
-                    "plate_i": "Shear Tie",
+                    "plate_i": "sheartie",
                     "plate_j": "Tear Strap",
                     "force": 135.9,
                     "stiffness": 154000.0,
@@ -116,25 +116,25 @@
             ],
             "nodes": [
                 {
-                    "plate_name": "Shear Tie",
+                    "plate_name": "sheartie",
                     "row": 2,
                     "displacement": 0.0016224,
                     "net_bypass": 0.0
                 },
                 {
-                    "plate_name": "Shear Tie",
+                    "plate_name": "sheartie",
                     "row": 3,
                     "displacement": 0.0019124,
                     "net_bypass": 188.2
                 },
                 {
-                    "plate_name": "Shear Tie",
+                    "plate_name": "sheartie",
                     "row": 4,
                     "displacement": 0.0022058,
                     "net_bypass": 135.9
                 },
                 {
-                    "plate_name": "Shear Tie",
+                    "plate_name": "sheartie",
                     "row": 5,
                     "displacement": 0.0024152,
                     "net_bypass": 0.0
