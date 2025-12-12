@@ -758,6 +758,33 @@ class Joint1D:
             return False
         return "star" in topology
 
+    def _effective_topology_for_row(self, fastener: FastenerRow) -> str:
+        """
+        Determine the effective topology for a fastener row, considering plate count.
+        
+        Per Jarfall/Rutman: Boeing methods with 3+ plates should use boeing_beam
+        topology for proper shear+bending physics modeling.
+        """
+        base_topo = self._fastener_topology(fastener)
+        
+        # Only auto-route for Boeing topologies that haven't explicitly chosen a topology
+        is_boeing_default = base_topo in ("boeing_star_scaled", "boeing_star_raw")
+        explicit_topology = (fastener.topology or "").strip().lower()
+        
+        if is_boeing_default and not explicit_topology:
+            # Count plates in connections
+            if fastener.connections:
+                n_plates = len(fastener.connections) + 1
+            else:
+                # Count plates present at this row
+                n_plates = len(self._plates_at_row(fastener.row))
+            
+            # Per Jarfall (1972): Use beam topology for 3+ plates
+            if n_plates >= 3:
+                return "boeing_beam"
+        
+        return base_topo
+
     # ------------------------------------------------------------------
     # Utility helpers
     # ------------------------------------------------------------------
@@ -872,7 +899,7 @@ class Joint1D:
                 ndof += 1
 
         for fastener in self.fasteners:
-            topology = self._fastener_topology(fastener)
+            topology = self._effective_topology_for_row(fastener)
             if self._topology_uses_fastener_dof(topology):
                 self._dof[("fastener", fastener.row)] = ndof
                 ndof += 1
@@ -1428,7 +1455,7 @@ class Joint1D:
             plates_at_row, connection_pairs = self._plates_and_pairs(fastener)
             if not plates_at_row:
                 continue
-            topology = self._fastener_topology(fastener)
+            topology = self._effective_topology_for_row(fastener)
             if topology in ("boeing_chain", "boeing_chain_eq1", "boeing_chain_eq2"):
                 self._assemble_boeing_chain(plates_at_row, connection_pairs, fastener, springs, stiffness_matrix)
             elif topology == "boeing_star_scaled":
@@ -1709,37 +1736,43 @@ class Joint1D:
             K_local[iu][iv] -= k
             K_local[iv][iu] -= k
             
-        # B. Add Beam Segments (with Calibrated EI)
+        # B. Add Beam Segments using Timoshenko Beam (Jarfall/Rutman methodology)
+        # Physical bolt properties for ALL segments
+        D = fastener.D
+        Gb = fastener.Eb / (2.0 * (1.0 + fastener.nu_b))  # Bolt shear modulus
+        Ab = math.pi * D * D / 4.0                         # Bolt area
+        I_b = math.pi * D**4 / 64.0                        # Bolt moment of inertia
+        
+        # Physical stiffnesses per Jarfall/Rutman:
+        # - EI for bending
+        # - GA with κ = 8/9 to match Boeing shear term: 4*(ti+tj)/(9*G*A)
+        EI = fastener.Eb * I_b
+        GA = (8.0 / 9.0) * Gb * Ab
+        
         for i in range(n - 1):
             p_i = plate_objs[i]
             p_j = plate_objs[i+1]
             t_i = self._thickness_at_row(p_i, row_index)
             t_j = self._thickness_at_row(p_j, row_index)
             
-            # Total Target Compliance (Single Shear Boeing 69)
-            # We match the single-shear compliance exactly.
+            # Store pairwise compliance for reporting (Single Shear Boeing 69)
             C_total = self._calculate_compliance_pairwise(p_i, p_j, fastener, t_i, t_j, shear_planes=1)
-            
             self._interface_properties[(row_index, plate_indices[i], plate_indices[i+1])] = (C_total, 1.0/max(C_total, 1e-12))
-
-            # Isolate Beam Compliance (Subtract Bearing Terms)
-            # C_beam = C_total - (1/k_brg_i + 1/k_brg_j)
-            C_brg_term = (1.0/k_brg[i]) + (1.0/k_brg[i+1])
-            C_beam_target = C_total - C_brg_term
-            if C_beam_target < 1e-13:
-                C_beam_target = 1e-13
             
+            # Segment length per Rutman: L = (t_i + t_j) / 2 (midplane to midplane)
             L = (t_i + t_j) / 2.0
             if L < 1e-9:
                 L = 0.01
             
-            # Calibrate Effective EI to match C_beam_target (Fixed-Fixed Beam segment)
-            EI_eff = (L**3) / (12.0 * C_beam_target)
+            # Timoshenko beam stiffness matrix (4x4 for [v1, θ1, v2, θ2])
+            # φ = 12*EI / (GA*L²) is the shear deformation parameter
+            phi = 12.0 * EI / (GA * L * L)
+            k_coef = EI / (L * (1.0 + phi))
             
-            k11 = 12.0 * EI_eff / L**3
-            k12 = 6.0 * EI_eff / L**2
-            k22 = 4.0 * EI_eff / L
-            k22_cross = 2.0 * EI_eff / L
+            k11 = 12.0 * k_coef / (L * L)
+            k12 = 6.0 * k_coef / L
+            k22 = (4.0 + phi) * k_coef
+            k22_cross = (2.0 - phi) * k_coef
             
             # Local beam assembly
             iv1, ith1 = idx_v(i), idx_th(i)
