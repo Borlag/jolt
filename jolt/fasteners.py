@@ -54,7 +54,9 @@ def boeing69_compliance(
     ) / (40.0 * Eb * inertia_bolt)
 
     # Bearing Term
-    div = float(1 if shear_planes <= 1 else 2 * shear_planes)
+    # Fix: Double Shear (shear_planes=2) means load is split into 2 walls,
+    # so compliance is halved (stiffness doubled). Divisor should be N, not 2*N.
+    div = float(max(1, shear_planes))
     ti_brg = bearing_ti if bearing_ti is not None else ti
     tj_brg = bearing_tj if bearing_tj is not None else tj
     

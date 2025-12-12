@@ -20,6 +20,7 @@ _TOPOLOGY_OPTIONS = [
     ("Boeing star (legacy single-shear)", "boeing_star_raw"),
     ("Empirical chain (Huth / other)", "empirical_chain"),
     ("Empirical star (default for non-Boeing)", "empirical_star"),
+    ("Boeing Beam (Jarfall Ladder)", "boeing_beam"),
 ]
 
 def render_sidebar() -> Tuple[List[float], List[Plate], List[FastenerRow], List[Tuple[int, int, float]], Dict[int, float], Dict[str, str]]:

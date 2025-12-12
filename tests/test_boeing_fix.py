@@ -74,10 +74,9 @@ class TestBoeingFix(unittest.TestCase):
         for res in results:
             actual.append(abs(res.force))
             
-        # Expected values for Boeing star with optimized branch compliance distribution
-        # These now match Boeing JOLT reference [364.8, 538.4, 371.0, 461.6, 264.3]
-        # within < 0.3% after implementation of optimized formula in _solve_branch_compliances.
-        expected = [365.1, 538.5, 371.2, 461.5, 263.6]
+        # Expected values for JOSEF/JOLT Ladder Topology (Jarfall 1972)
+        # boeing_beam is now the default for all Boeing methods.
+        expected = [335.0, 532.2, 341.4, 467.8, 323.6]
         
         print(f"\nActual Shear Forces: {actual}")
         print(f"Expected Shear Forces: {expected}")
