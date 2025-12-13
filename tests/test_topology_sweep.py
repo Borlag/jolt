@@ -15,7 +15,7 @@ def test_solve_with_topologies_basic():
         Plate(name="A", E=1.0e7, t=0.05, first_row=1, last_row=2, A_strip=[0.05], Fx_right=100.0),
         Plate(name="B", E=1.0e7, t=0.05, first_row=1, last_row=2, A_strip=[0.05]),
     ]
-    fasteners = [FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing69")]
+    fasteners = [FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing")]
     supports = [(1, 0, 0.0)]
     
     results = solve_with_topologies(
@@ -40,7 +40,7 @@ def test_topologies_give_same_equilibrium():
         Plate(name="A", E=1.0e7, t=0.05, first_row=1, last_row=2, A_strip=[0.05], Fx_right=100.0),
         Plate(name="B", E=1.0e7, t=0.05, first_row=1, last_row=2, A_strip=[0.05]),
     ]
-    fasteners = [FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing69")]
+    fasteners = [FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing")]
     supports = [(1, 0, 0.0)]
     
     results = solve_with_topologies(
@@ -63,8 +63,8 @@ def test_topologies_may_differ_in_fastener_forces():
         Plate(name="C", E=1.0e7, t=0.05, first_row=1, last_row=3, A_strip=[0.05, 0.05]),
     ]
     fasteners = [
-        FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing69", connections=[(0, 1), (1, 2)]),
-        FastenerRow(row=2, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing69", connections=[(0, 1), (1, 2)]),
+        FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing", connections=[(0, 1), (1, 2)]),
+        FastenerRow(row=2, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing", connections=[(0, 1), (1, 2)]),
     ]
     supports = [(2, 0, 0.0)]
     
@@ -95,7 +95,7 @@ def test_does_not_mutate_fasteners():
         Plate(name="A", E=1.0e7, t=0.05, first_row=1, last_row=2, A_strip=[0.05], Fx_right=100.0),
         Plate(name="B", E=1.0e7, t=0.05, first_row=1, last_row=2, A_strip=[0.05]),
     ]
-    fasteners = [FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing69")]
+    fasteners = [FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing")]
     supports = [(1, 0, 0.0)]
     
     original_topology = fasteners[0].topology
@@ -116,7 +116,7 @@ def test_default_topology_variants():
         Plate(name="A", E=1.0e7, t=0.05, first_row=1, last_row=2, A_strip=[0.05], Fx_right=100.0),
         Plate(name="B", E=1.0e7, t=0.05, first_row=1, last_row=2, A_strip=[0.05]),
     ]
-    fasteners = [FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing69")]
+    fasteners = [FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing")]
     supports = [(1, 0, 0.0)]
     
     results = solve_with_topologies(pitches, plates, fasteners, supports)

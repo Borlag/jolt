@@ -32,7 +32,7 @@ def test_fastener_from_dict_normalizes_method_names():
     assert graphite.method == "Huth_graphite"
 
     defaulted = fastener_from_dict({**base_data, "method": "unknown"})
-    assert defaulted.method == "Boeing69"
+    assert defaulted.method == "Boeing"
 
 
 def test_fastener_custom_interfaces():

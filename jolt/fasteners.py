@@ -5,7 +5,8 @@ Formula Selection Guide:
 * Huth: Best for general purpose, mixed metal/composite, and riveted joints (empirically tuned).
 * Grumman: Best for legacy single-shear metallic joints (e.g., Saab 37 Viggen data).
 * Swift: Best for Damage Tolerance/Fatigue Crack growth analysis (conservative). Also known as Vought/Douglas.
-* Boeing 69: Best for detailed geometric stack-ups where bending/bearing separation is required.
+* Boeing: Best for detailed geometric stack-ups where bending/bearing separation is required.
+  (Formerly known as Boeing69 from D6-29942. For 3+ layers, uses Timoshenko+Jarfall formulation.)
 """
 from __future__ import annotations
 
@@ -249,8 +250,12 @@ def morris_compliance(
     # Fallback to Tate-Rosenfeld as per plan/request for now
     return tate_rosenfeld_compliance(t1, E1, t2, E2, Ef, diameter)
 
+# Alias for forward compatibility (canonical name is Boeing, not Boeing69)
+boeing_compliance = boeing69_compliance
+
 __all__ = [
-    "boeing69_compliance", 
+    "boeing_compliance",        # Canonical name (alias)
+    "boeing69_compliance",      # Legacy/internal name 
     "boeing69_eq1_compliance",
     "boeing69_eq2_compliance",
     "boeing_pair_compliance",

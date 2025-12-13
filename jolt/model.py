@@ -76,7 +76,7 @@ class FastenerRow:
     D: float
     Eb: float
     nu_b: float
-    method: str = "Boeing69"
+    method: str = "Boeing"
     k_manual: Optional[float] = None
     connections: Optional[List[Tuple[int, int]]] = None
     
@@ -703,17 +703,18 @@ class Joint1D:
         method = fastener.method.lower()
         
         # Explicit combined modes (method + topology in one string)
-        # e.g., "Boeing69_chain" or "Huth_star"
+        # e.g., "Boeing_chain" or "Huth_star"
         # New Eq1/Eq2 support
-        if "boeing69_eq1_chain" in method or "boeing_eq1_chain" in method:
+        if "boeing_eq1_chain" in method or "boeing69_eq1_chain" in method:
             return "boeing_chain_eq1"
-        if "boeing69_eq2_chain" in method or "boeing_eq2_chain" in method:
+        if "boeing_eq2_chain" in method or "boeing69_eq2_chain" in method:
             return "boeing_chain_eq2"
-        if "boeing69_eq1_star" in method or "boeing_eq1_star" in method:
+        if "boeing_eq1_star" in method or "boeing69_eq1_star" in method:
             return "boeing_star_eq1"
-        if "boeing69_eq2_star" in method or "boeing_eq2_star" in method:
+        if "boeing_eq2_star" in method or "boeing69_eq2_star" in method:
             return "boeing_star_eq2"
 
+        # Legacy boeing69 patterns (backward compat)
         if "boeing69_chain" in method:
             return "boeing_chain"
         if "boeing69_star_scaled" in method:
@@ -725,7 +726,7 @@ class Joint1D:
         if "huth_star" in method:
             return "empirical_star"
         
-        # Existing behavior (backward-compatible)
+        # Boeing variants (canonical and legacy)
         if "boeing_chain" in method:
             return "boeing_chain"
         if "boeing_star_scaled" in method:
@@ -747,7 +748,7 @@ class Joint1D:
         if "boeing_beam" in method:
             return "boeing_beam"
 
-        # Defaults: Boeing -> legacy star, everything else -> empirical star
+        # Defaults: Boeing -> star (will auto-route to beam for 3+ layers)
         if "boeing" in method:
             return "boeing_star_scaled"
         return "empirical_star"
@@ -758,18 +759,28 @@ class Joint1D:
             return False
         return "star" in topology
 
+    def _is_boeing_method(self, fastener: FastenerRow) -> bool:
+        """Check if fastener uses Boeing method (any variant)."""
+        method = fastener.method.lower()
+        return "boeing" in method and "huth" not in method
+
     def _effective_topology_for_row(self, fastener: FastenerRow) -> str:
         """
         Determine the effective topology for a fastener row, considering plate count.
         
         Per Jarfall/Rutman: Boeing methods with 3+ plates should use boeing_beam
-        topology for proper shear+bending physics modeling.
+        topology for proper shear+bending physics (Timoshenko+Jarfall formulation).
+        
+        For Boeing method:
+          - 2 layers: use existing Boeing formulation (star/chain)
+          - 3+ layers: automatically route to boeing_beam (Timoshenko+Jarfall)
+          - Explicit topology override is allowed (user takes responsibility)
         """
         base_topo = self._fastener_topology(fastener)
+        explicit_topology = (fastener.topology or "").strip().lower()
         
         # Only auto-route for Boeing topologies that haven't explicitly chosen a topology
         is_boeing_default = base_topo in ("boeing_star_scaled", "boeing_star_raw")
-        explicit_topology = (fastener.topology or "").strip().lower()
         
         if is_boeing_default and not explicit_topology:
             # Count plates in connections
@@ -1952,6 +1963,38 @@ class Joint1D:
             compliance = self._calculate_compliance_pairwise(
                 plate_i, plate_j, fastener, t_i, t_j, shear_planes=1
             )
+            if compliance <= 1e-12:
+                compliance = 1e-12
+            pairwise_compliances.append(compliance)
+            self._interface_properties[(row_index, idx_i, idx_j)] = (compliance, 1.0 / compliance)
+
+        ordered_plate_objects = [plate_lookup[idx] for idx in ordered_plates]
+        branch_compliances = self._solve_branch_compliances(ordered_plate_objects, fastener, row_index, pairwise_compliances)
+        self._assemble_star_from_compliances(ordered_plates, plate_lookup, branch_compliances, fastener, springs, stiffness_matrix)
+
+    def _assemble_boeing_star_raw(
+        self,
+        plates_at_row: List[Tuple[int, Plate]],
+        connection_pairs: List[Tuple[int, int]],
+        fastener: FastenerRow,
+        springs: List[Tuple[int, int, float, int, int, float]],
+        stiffness_matrix: List[List[float]],
+    ) -> None:
+        """Legacy Boeing star using pairwise single-shear compliances."""
+        if not connection_pairs:
+            return
+
+        plate_lookup = {idx: plate for idx, plate in plates_at_row}
+        row_index = fastener.row
+        pairwise_compliances = []
+        ordered_plates = self._ordered_plate_indices(connection_pairs)
+
+        for idx_i, idx_j in connection_pairs:
+            plate_i = plate_lookup[idx_i]
+            plate_j = plate_lookup[idx_j]
+            t_i = self._thickness_at_row(plate_i, row_index)
+            t_j = self._thickness_at_row(plate_j, row_index)
+            compliance = self._calculate_compliance_pairwise(plate_i, plate_j, fastener, t_i, t_j)
             if compliance <= 1e-12:
                 compliance = 1e-12
             pairwise_compliances.append(compliance)

@@ -9,21 +9,35 @@ from typing import Any, Dict, Iterable, IO, List, Optional, Sequence, Tuple, Uni
 from .model import FastenerRow, Joint1D, Plate, JointSolution
 import uuid
 
-_DEFAULT_FASTENER_METHOD = "Boeing69"
+_DEFAULT_FASTENER_METHOD = "Boeing"
+
+# Legacy method aliases - normalize to canonical names
+# Boeing69 variants map to "Boeing" (with deprecation warning)
 _FASTENER_METHOD_ALIASES = {
-    "boeing69": "Boeing69",
-    "boeing_69": "Boeing69",
-    "boeing-69": "Boeing69",
-    "boeing": "Boeing69",
+    "boeing": "Boeing",
+    "boeing69": "Boeing",        # Deprecated
+    "boeing_69": "Boeing",       # Deprecated
+    "boeing-69": "Boeing",       # Deprecated
     "huth_metal": "Huth_metal",
     "huth-metal": "Huth_metal",
     "huthmetal": "Huth_metal",
+    "huth (bolted metal)": "Huth_metal",
     "huth_graphite": "Huth_graphite",
     "huth-graphite": "Huth_graphite",
     "huthgraphite": "Huth_graphite",
+    "huth (bolted graphite)": "Huth_graphite",
+    "huth (riveted metal)": "Huth_riveted",
     "grumman": "Grumman",
+    "swift (douglas)": "Swift_Douglas",
+    "swift_douglas": "Swift_Douglas",
+    "tate-rosenfeld": "Tate_Rosenfeld",
+    "tate_rosenfeld": "Tate_Rosenfeld",
+    "morris": "Morris",
     "manual": "Manual",
 }
+
+# Track if deprecation warning has been issued (per-session)
+_boeing69_deprecation_warned = False
 
 
 def _normalize_fastener_method(value: Any) -> str:
@@ -32,15 +46,32 @@ def _normalize_fastener_method(value: Any) -> str:
     Saved configurations created by older versions of the app (or edited by hand)
     may store method identifiers that do not exactly match the keys used by the
     UI.  Falling back to a known method avoids hard failures when loading such
-    data.  The Boeing 69 formulation is used as a conservative default when the
-    value cannot be resolved.
+    data.  The Boeing formulation is used as the default when the value cannot
+    be resolved.
+    
+    Deprecated: "Boeing69" and variants are accepted for backward compatibility
+    but will map to "Boeing" with a deprecation warning.
     """
+    global _boeing69_deprecation_warned
 
     if not isinstance(value, str):
         return _DEFAULT_FASTENER_METHOD
 
     normalized = value.strip().lower()
     normalized = normalized.replace(" ", "_").replace("-", "_")
+    
+    # Check for deprecated Boeing69 variants and warn once
+    if "69" in normalized and "boeing" in normalized:
+        if not _boeing69_deprecation_warned:
+            import warnings
+            warnings.warn(
+                'Fastener method "Boeing69" is deprecated. Use "Boeing" instead. '
+                'Config has been automatically updated.',
+                DeprecationWarning,
+                stacklevel=3
+            )
+            _boeing69_deprecation_warned = True
+    
     return _FASTENER_METHOD_ALIASES.get(normalized, _DEFAULT_FASTENER_METHOD)
 
 Supports = List[Tuple[int, int, float]]

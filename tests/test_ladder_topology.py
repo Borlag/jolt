@@ -46,7 +46,7 @@ class TestLadderTopology:
             Plate(name="P4", E=10e6, t=0.08, first_row=1, last_row=2, A_strip=[0.08])
         ]
         fasteners = [
-            FastenerRow(row=1, D=0.25, Eb=10e6, nu_b=0.3, method="Boeing69",
+            FastenerRow(row=1, D=0.25, Eb=10e6, nu_b=0.3, method="Boeing",
                        connections=[(0, 1), (1, 2), (2, 3)])
         ]
         pitches = [1.0]
@@ -70,7 +70,7 @@ class TestLadderTopology:
             Plate(name="P3", E=10e6, t=0.1, first_row=1, last_row=2, A_strip=[0.1])
         ]
         fasteners = [
-            FastenerRow(row=1, D=0.25, Eb=10e6, nu_b=0.3, method="Boeing69",
+            FastenerRow(row=1, D=0.25, Eb=10e6, nu_b=0.3, method="Boeing",
                        connections=[(0, 1), (1, 2)])
         ]
         pitches = [1.0]

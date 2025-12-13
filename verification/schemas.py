@@ -291,9 +291,9 @@ def validate_config(data: Dict[str, Any]) -> List[ValidationError]:
 # =============================================================================
 
 FORMULA_ALIASES = {
-    "boeing": "Boeing69",
-    "boeing69": "Boeing69", 
-    "boeing_69": "Boeing69",
+    "boeing": "Boeing",
+    "boeing69": "Boeing",          # Deprecated - backward compat
+    "boeing_69": "Boeing",         # Deprecated
     "huth": "Huth_metal",
     "huth_metal": "Huth_metal",
     "huth_metallic": "Huth_metal",
@@ -316,7 +316,7 @@ def normalize_formula_name(name: str) -> str:
         name: Formula name from reference file (e.g., 'boeing', 'huth')
         
     Returns:
-        Normalized formula name for solver (e.g., 'Boeing69', 'Huth_metal')
+        Normalized formula name for solver (e.g., 'Boeing', 'Huth_metal')
     """
     normalized = name.strip().lower().replace("-", "_").replace(" ", "_")
     return FORMULA_ALIASES.get(normalized, name)

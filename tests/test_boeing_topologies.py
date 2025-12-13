@@ -87,7 +87,7 @@ def test_two_plate_consistency():
         Plate(name="A", E=1.0e7, t=0.05, first_row=1, last_row=2, A_strip=[0.05], Fx_left=0.0, Fx_right=100.0),
         Plate(name="B", E=1.0e7, t=0.05, first_row=1, last_row=2, A_strip=[0.05], Fx_left=0.0, Fx_right=0.0),
     ]
-    fastener = FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing69")
+    fastener = FastenerRow(row=1, D=0.25, Eb=1.0e7, nu_b=0.3, method="Boeing")
     supports = [(1, 0, 0.0)]
 
     topologies = ["boeing_chain", "boeing_star_scaled", "boeing_star_raw", "empirical_chain", "empirical_star"]

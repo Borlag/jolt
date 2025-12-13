@@ -1,0 +1,78 @@
+﻿============================================================
+JARFALL COMPLIANCE FIX - COMPREHENSIVE TEST SUITE
+============================================================
+
+Found 5 test cases: ['D06_2', 'D06_3', 'D06_4', 'D06_5', 'D06']
+
+
+=== D06_2 Fastener Force Comparison ===
+  R2 Doubler -Skin    : Ref=  268.0 Calc=  268.1 Err=  0.09 lbf (0.0%)
+  R7 Doubler -Skin    : Ref=  124.6 Calc=  124.6 Err=  0.03 lbf (0.0%)
+  R3 Doubler -Skin    : Ref=  124.6 Calc=  124.6 Err=  0.03 lbf (0.0%)
+  R6 Doubler -Skin    : Ref=   49.0 Calc=   49.0 Err=  0.01 lbf (0.0%)
+  R4 Doubler -Skin    : Ref=   49.0 Calc=   49.0 Err=  0.01 lbf (0.0%)
+  ... and 2 more fasteners
+
+  Max Absolute Error: 0.09 lbf
+  Max Relative Error: 0.0%
+  PASS: Absolute error < 1.0 lbf
+
+=== D06_3 Fastener Force Comparison ===
+  R3 Tear Str-Skin    : Ref=   64.2 Calc=   64.3 Err=  0.05 lbf (0.1%)
+  R3 Skin    -Doubler : Ref=  136.6 Calc=  136.6 Err=  0.05 lbf (0.0%)
+  R4 Tear Str-Skin    : Ref=   28.6 Calc=   28.6 Err=  0.04 lbf (0.2%)
+  R4 sheartie-Tear Str: Ref=   54.5 Calc=   54.5 Err=  0.04 lbf (0.1%)
+  R2 Skin    -Doubler : Ref=   18.4 Calc=   18.4 Err=  0.03 lbf (0.2%)
+  ... and 7 more fasteners
+
+  Max Absolute Error: 0.05 lbf
+  Max Relative Error: 0.2%
+  PASS: Absolute error < 1.0 lbf
+
+=== D06_4 Fastener Force Comparison ===
+  R5 Tripler -Doubler : Ref=   38.5 Calc=   38.6 Err=  0.06 lbf (0.2%)
+  R5 Doubler -Skin    : Ref=   80.1 Calc=   80.1 Err=  0.05 lbf (0.1%)
+  R5 Skin    -Strap   : Ref=  206.3 Calc=  206.3 Err=  0.04 lbf (0.0%)
+  R6 Doubler -Strap   : Ref=  180.7 Calc=  180.7 Err=  0.04 lbf (0.0%)
+  R3 Doubler -Skin    : Ref=   98.4 Calc=   98.4 Err=  0.04 lbf (0.0%)
+  ... and 5 more fasteners
+
+  Max Absolute Error: 0.06 lbf
+  Max Relative Error: 0.2%
+  PASS: Absolute error < 1.0 lbf
+
+=== D06_5 Fastener Force Comparison ===
+  R2 Doubler -Skin    : Ref=  158.7 Calc=  158.5 Err=  0.18 lbf (0.1%)
+  R3 Doubler -Skin    : Ref=  206.6 Calc=  206.7 Err=  0.15 lbf (0.1%)
+  R5 Tripler -Doubler : Ref=  148.2 Calc=  148.2 Err=  0.05 lbf (0.0%)
+  R4 Tripler -Doubler : Ref=  123.9 Calc=  123.9 Err=  0.04 lbf (0.0%)
+  R5 Doubler -Skin    : Ref=  233.2 Calc=  233.2 Err=  0.02 lbf (0.0%)
+  ... and 2 more fasteners
+
+  Max Absolute Error: 0.18 lbf
+  Max Relative Error: 0.1%
+  PASS: Absolute error < 1.0 lbf
+
+=== D06 Fastener Force Comparison ===
+  R4 Doubler -Skin    : Ref=  264.3 Calc=  264.2 Err=  0.09 lbf (0.0%)
+  R2 Skin    -Strap   : Ref=  538.4 Calc=  538.5 Err=  0.06 lbf (0.0%)
+  R3 Skin    -Strap   : Ref=  461.6 Calc=  461.5 Err=  0.06 lbf (0.0%)
+  R3 Doubler -Skin    : Ref=  371.0 Calc=  371.0 Err=  0.01 lbf (0.0%)
+  R2 Doubler -Skin    : Ref=  364.8 Calc=  364.8 Err=  0.00 lbf (0.0%)
+
+  Max Absolute Error: 0.09 lbf
+  Max Relative Error: 0.0%
+  PASS: Absolute error < 1.0 lbf
+
+============================================================
+SUMMARY
+============================================================
+Case       Fasteners    Max Err (lbf)   Max Err %    Status  
+------------------------------------------------------------
+D06_2      7            0.09            0.0          PASS    
+D06_3      12           0.05            0.2          PASS    
+D06_4      10           0.06            0.2          PASS    
+D06_5      7            0.18            0.1          PASS    
+D06        5            0.09            0.0          PASS    
+------------------------------------------------------------
+ALL TESTS PASSED!

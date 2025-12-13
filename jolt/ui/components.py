@@ -197,7 +197,7 @@ def _render_node_based_inputs(units: Dict[str, str]) -> Tuple[List[float], List[
             elif col == "v":
                 st.session_state.fastener_table_nb[col] = 0.3
             elif col == "method":
-                st.session_state.fastener_table_nb[col] = "boeing69"
+                st.session_state.fastener_table_nb[col] = "boeing"
             elif col == "topology":
                 st.session_state.fastener_table_nb[col] = ""
             else:
@@ -215,8 +215,8 @@ def _render_node_based_inputs(units: Dict[str, str]) -> Tuple[List[float], List[
             "v": st.column_config.NumberColumn("Poisson Ratio", default=0.3),
             "method": st.column_config.SelectboxColumn(
                 "Method",
-                options=["boeing69", "huth", "grumman"],
-                default="boeing69",
+                options=["boeing", "huth", "grumman"],
+                default="boeing",
                 required=True
             ),
             "topology": st.column_config.SelectboxColumn(
@@ -549,7 +549,7 @@ def _render_fasteners_section(units: Dict[str, str]):
         b_start = bc1.number_input("Start Row", 1, max(n_rows, 1), 1, key=f"bulk_start_v{st.session_state.get('_widget_version', 0)}")
         b_end = bc2.number_input("End Row", 1, max(n_rows, 1), max(n_rows, 1), key=f"bulk_end_v{st.session_state.get('_widget_version', 0)}")
         b_method = bc3.selectbox("Method", [
-            "Boeing69", 
+            "Boeing", 
             "Huth (Bolted Metal)", 
             "Huth (Riveted Metal)", 
             "Huth (Bolted Graphite)", 
@@ -660,7 +660,7 @@ def _render_fasteners_section(units: Dict[str, str]):
             st.rerun()
 
     methods = [
-        "Boeing69", 
+        "Boeing", 
         "Huth (Bolted Metal)", 
         "Huth (Riveted Metal)", 
         "Huth (Bolted Graphite)", 
