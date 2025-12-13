@@ -1155,47 +1155,87 @@ class Joint1D:
             force = stiffness * (u_fastener - u_plate)
             bearing_forces[(plate_idx, row)] = bearing_forces.get((plate_idx, row), 0.0) + force
             
-        # 2. Condensed Beam Recovery (Ladder Topology)
+        # 2. Jarfall Coupled Compliance Recovery (boeing_beam topology)
+        # Uses: δ = Du (relative slips), F = C^{-1}δ (interface forces), B = D^T F (bearing forces)
         if hasattr(self, "_condensed_recovery"):
             for row_index, data in self._condensed_recovery.items():
                 plate_indices = data["plate_indices"]
-                k_brg = data["k_brg"]
-                Temp = data["Temp"]
-                b_indices_map = data["b_indices_map"]
+                n = data.get("n_plates", len(plate_indices))
                 
-                n = len(plate_indices)
-                
-                # Gather Plate Displacements (u)
-                u_vec = []
-                for i, p_idx in enumerate(plate_indices):
-                    plate = self.plates[p_idx]
-                    local_node = row_index - plate.first_row
-                    dof = self._dof.get((p_idx, local_node))
-                    val = displacements[dof] if dof is not None else 0.0
-                    u_vec.append(val)
-                
-                # Recover Beam Internal DOFs (b = -Temp * u)
-                nb = len(Temp)
-                b_vec = [0.0] * nb
-                for r in range(nb):
-                    val = 0.0
-                    for c in range(n):
-                        val += Temp[r][c] * u_vec[c]
-                    b_vec[r] = -val
-                
-                # Compute Bearing Forces for each plate: F = k_brg * (v_i - u_i)
-                # v_i is the translational DOF corresponds to local index n + 2*i
-                for i in range(n):
-                    target_local_idx = n + 2 * i
+                # Check if this is the new Jarfall recovery format
+                if "C_inv" in data:
+                    C_inv = data["C_inv"]
+                    m = n - 1  # number of interfaces
                     
-                    try:
-                        b_pos = b_indices_map.index(target_local_idx)
-                        v_i = b_vec[b_pos]
-                    except ValueError:
-                        v_i = 0.0 # Should be reachable dependent on clamping logic
+                    # Gather Plate Displacements (u)
+                    u_vec = []
+                    for i, p_idx in enumerate(plate_indices):
+                        plate = self.plates[p_idx]
+                        local_node = row_index - plate.first_row
+                        dof = self._dof.get((p_idx, local_node))
+                        val = displacements[dof] if dof is not None else 0.0
+                        u_vec.append(val)
                     
-                    force = k_brg[i] * (v_i - u_vec[i])
-                    bearing_forces[(plate_indices[i], row_index)] = bearing_forces.get((plate_indices[i], row_index), 0.0) + force
+                    # Compute relative slips: δ = Du where D is difference operator
+                    # δ_i = u_i - u_{i+1}
+                    delta = [u_vec[i] - u_vec[i + 1] for i in range(m)]
+                    
+                    # Compute interface forces: F = C^{-1} δ
+                    F = [0.0] * m
+                    for i in range(m):
+                        for j in range(m):
+                            F[i] += C_inv[i][j] * delta[j]
+                    
+                    # Compute bearing forces: B = D^T F
+                    # B_r = sum over i of D^T[r][i] * F[i]
+                    # D^T[r][i] = 1 if r==i, -1 if r==i+1, else 0
+                    B = [0.0] * n
+                    for r in range(n):
+                        for i in range(m):
+                            if r == i:
+                                B[r] += F[i]
+                            elif r == i + 1:
+                                B[r] -= F[i]
+                    
+                    # Store bearing forces for each plate
+                    for i in range(n):
+                        bearing_forces[(plate_indices[i], row_index)] = bearing_forces.get((plate_indices[i], row_index), 0.0) + B[i]
+                else:
+                    # Legacy Timoshenko beam recovery (for backward compatibility)
+                    k_brg = data.get("k_brg", [])
+                    Temp = data.get("Temp", [])
+                    b_indices_map = data.get("b_indices_map", [])
+                    
+                    # Gather Plate Displacements (u)
+                    u_vec = []
+                    for i, p_idx in enumerate(plate_indices):
+                        plate = self.plates[p_idx]
+                        local_node = row_index - plate.first_row
+                        dof = self._dof.get((p_idx, local_node))
+                        val = displacements[dof] if dof is not None else 0.0
+                        u_vec.append(val)
+                    
+                    # Recover Beam Internal DOFs (b = -Temp * u)
+                    nb = len(Temp)
+                    b_vec = [0.0] * nb
+                    for r in range(nb):
+                        val = 0.0
+                        for c in range(n):
+                            val += Temp[r][c] * u_vec[c]
+                        b_vec[r] = -val
+                    
+                    # Compute Bearing Forces for each plate: F = k_brg * (v_i - u_i)
+                    for i in range(n):
+                        target_local_idx = n + 2 * i
+                        
+                        try:
+                            b_pos = b_indices_map.index(target_local_idx)
+                            v_i = b_vec[b_pos]
+                        except ValueError:
+                            v_i = 0.0
+                        
+                        force = k_brg[i] * (v_i - u_vec[i])
+                        bearing_forces[(plate_indices[i], row_index)] = bearing_forces.get((plate_indices[i], row_index), 0.0) + force
 
         return bearing_forces
 
@@ -1689,14 +1729,15 @@ class Joint1D:
         stiffness_matrix: List[List[float]],
     ) -> None:
         """
-        Assemble fastener using the JOSEF/JOLT "Ladder" Topology.
-        Ref: Jarfall (1972), Fig 4 & 6.
+        Assemble fastener using the Jarfall (1972) Coupled Compliance formulation.
         
         Physics:
-        1. Topology: 2D Frame (Plates = Nodes u, Fastener = Beam v/theta).
-        2. Interaction: Bearing Springs connect u_i to v_i.
-        3. Calibration: Beam EI calibrated to (Total - Bearing) compliance to avoid double-counting.
-        4. Boundary: Head and Nut are clamped against rotation (theta=0).
+        - For n plates: n-1 interfaces with shear forces F
+        - Compliance matrix C is tridiagonal with coupling via intermediate plate bearing compliance
+        - Stiffness: K = D^T C^{-1} D where D is the difference operator
+        - Force recovery: δ = Du, F = C^{-1}δ, B = D^T F
+        
+        This formulation accurately reproduces Boeing JOLT load distribution for 3+ layer joints.
         """
         n = len(plates_at_row)
         if n < 2:
@@ -1706,123 +1747,111 @@ class Joint1D:
         plate_indices = [p[0] for p in plates_at_row]
         plate_objs = [p[1] for p in plates_at_row]
         plate_lookup = {idx: plate for idx, plate in plates_at_row}
-        
-        # --- 1. Compute Components & Calibrate ---
         E_b = fastener.Eb
         
-        # Calculate explicit bearing stiffness for each plate
-        k_brg = []
+        # --- 1. Compute pairwise compliances and bearing compliances ---
+        # C_pair[i] = Boeing69 total compliance between plate i and i+1
+        # C_c[k] = bearing compliance contribution of plate k (for intermediate plates)
+        C_pair = []
+        C_bearing = []  # Bearing compliance for each plate
+        
         for i, plate in enumerate(plate_objs):
             t_p = self._thickness_at_row(plate, row_index)
-            # Boeing 69 Bearing Term: C = 1/t * (1/Eb + 1/Ep)
-            c_brg_val = (1.0 / t_p) * (1.0 / E_b + 1.0 / plate.E)
-            # Use raw value (no 1.12 factor)
-            k_brg.append(1.0 / max(c_brg_val, 1e-12))
-
-        # --- 2. Build Local Super-Element Matrix ---
-        size = 3 * n
-        K_local = [[0.0] * size for _ in range(size)]
-        
-        def idx_u(i): return i
-        def idx_v(i): return n + 2*i
-        def idx_th(i): return n + 2*i + 1
-        
-        # A. Add Bearing Springs (u <-> v)
-        for i in range(n):
-            k = k_brg[i]
-            iu, iv = idx_u(i), idx_v(i)
-            K_local[iu][iu] += k
-            K_local[iv][iv] += k
-            K_local[iu][iv] -= k
-            K_local[iv][iu] -= k
-            
-        # B. Add Beam Segments using Timoshenko Beam (Jarfall/Rutman methodology)
-        # Physical bolt properties for ALL segments
-        D = fastener.D
-        Gb = fastener.Eb / (2.0 * (1.0 + fastener.nu_b))  # Bolt shear modulus
-        Ab = math.pi * D * D / 4.0                         # Bolt area
-        I_b = math.pi * D**4 / 64.0                        # Bolt moment of inertia
-        
-        # Physical stiffnesses per Jarfall/Rutman:
-        # - EI for bending
-        # - GA with κ = 8/9 to match Boeing shear term: 4*(ti+tj)/(9*G*A)
-        EI = fastener.Eb * I_b
-        GA = (8.0 / 9.0) * Gb * Ab
+            # Boeing 69 Bearing Term: C_c = (1/t) * (1/Eb + 1/Ep)
+            c_brg = (1.0 / t_p) * (1.0 / E_b + 1.0 / plate.E)
+            C_bearing.append(c_brg)
         
         for i in range(n - 1):
             p_i = plate_objs[i]
-            p_j = plate_objs[i+1]
+            p_j = plate_objs[i + 1]
             t_i = self._thickness_at_row(p_i, row_index)
             t_j = self._thickness_at_row(p_j, row_index)
             
-            # Store pairwise compliance for reporting (Single Shear Boeing 69)
+            # Boeing69 pairwise compliance (single shear)
             C_total = self._calculate_compliance_pairwise(p_i, p_j, fastener, t_i, t_j, shear_planes=1)
-            self._interface_properties[(row_index, plate_indices[i], plate_indices[i+1])] = (C_total, 1.0/max(C_total, 1e-12))
+            C_pair.append(max(C_total, 1e-12))
             
-            # Segment length per Rutman: L = (t_i + t_j) / 2 (midplane to midplane)
-            L = (t_i + t_j) / 2.0
-            if L < 1e-9:
-                L = 0.01
-            
-            # Timoshenko beam stiffness matrix (4x4 for [v1, θ1, v2, θ2])
-            # φ = 12*EI / (GA*L²) is the shear deformation parameter
-            phi = 12.0 * EI / (GA * L * L)
-            k_coef = EI / (L * (1.0 + phi))
-            
-            k11 = 12.0 * k_coef / (L * L)
-            k12 = 6.0 * k_coef / L
-            k22 = (4.0 + phi) * k_coef
-            k22_cross = (2.0 - phi) * k_coef
-            
-            # Local beam assembly
-            iv1, ith1 = idx_v(i), idx_th(i)
-            iv2, ith2 = idx_v(i+1), idx_th(i+1)
-            
-            K_local[iv1][iv1] += k11; K_local[iv1][iv2] -= k11
-            K_local[iv2][iv1] -= k11; K_local[iv2][iv2] += k11
-            K_local[iv1][ith1] += k12; K_local[iv1][ith2] += k12
-            K_local[iv2][ith1] -= k12; K_local[iv2][ith2] -= k12
-            K_local[ith1][iv1] += k12; K_local[ith1][iv2] -= k12
-            K_local[ith2][iv1] += k12; K_local[ith2][iv2] -= k12
-            K_local[ith1][ith1] += k22; K_local[ith1][ith2] += k22_cross
-            K_local[ith2][ith1] += k22_cross; K_local[ith2][ith2] += k22
-
-        # --- 3. Static Condensation ---
-        u_indices = list(range(n))
-        b_indices = []
-        for i in range(n):
-            b_indices.append(idx_v(i))
-            if i > 0 and i < n - 1:
-                b_indices.append(idx_th(i))
-                
-        K_uu = extract_submatrix(K_local, u_indices, u_indices)
-        K_ub = extract_submatrix(K_local, u_indices, b_indices)
-        K_bu = extract_submatrix(K_local, b_indices, u_indices)
-        K_bb = extract_submatrix(K_local, b_indices, b_indices)
+            # Store for reporting
+            self._interface_properties[(row_index, plate_indices[i], plate_indices[i + 1])] = (C_total, 1.0 / max(C_total, 1e-12))
         
-        nb = len(b_indices)
+        # --- 2. Build Jarfall Tridiagonal Compliance Matrix C ---
+        # C is (n-1) x (n-1) for n-1 interfaces
+        m = n - 1  # number of interfaces
+        C_matrix = [[0.0] * m for _ in range(m)]
+        
+        for i in range(m):
+            # Diagonal: total compliance of interface i,i+1
+            C_matrix[i][i] = C_pair[i]
+            
+            # Off-diagonal coupling: negative bearing compliance of intermediate plate
+            # C_{i,i+1} = C_{i+1,i} = -C_c(i+1) where plate i+1 is the intermediate
+            if i < m - 1:
+                # Plate i+1 (index i+1) is intermediate between interfaces i and i+1
+                coupling = -C_bearing[i + 1]
+                C_matrix[i][i + 1] = coupling
+                C_matrix[i + 1][i] = coupling
+        
+        # --- 3. Compute K = D^T C^{-1} D ---
+        # First invert C (m x m matrix)
         try:
-            K_bb_inv = [[0.0] * nb for _ in range(nb)]
-            for col in range(nb):
-                rhs = [1.0 if r == col else 0.0 for r in range(nb)]
-                col_sol = solve_dense(K_bb, rhs)
-                for r in range(nb):
-                    K_bb_inv[r][col] = col_sol[r]
-            
-            Temp = [[sum(K_bb_inv[r][k] * K_bu[k][c] for k in range(nb)) for c in range(n)] for r in range(nb)]
-            Correction = [[sum(K_ub[r][k] * Temp[k][c] for k in range(nb)) for c in range(n)] for r in range(n)]
-            K_cond = [[K_uu[r][c] - Correction[r][c] for c in range(n)] for r in range(n)]
-            
-            self._condensed_recovery[row_index] = {
-                "plate_indices": plate_indices,
-                "k_brg": k_brg,
-                "Temp": Temp,
-                "b_indices_map": b_indices
-            }
+            C_inv = [[0.0] * m for _ in range(m)]
+            for col in range(m):
+                rhs = [1.0 if r == col else 0.0 for r in range(m)]
+                col_sol = solve_dense(C_matrix, rhs)
+                for r in range(m):
+                    C_inv[r][col] = col_sol[r]
         except:
-            K_cond = K_uu
+            # Fallback: diagonal approximation if inversion fails
+            C_inv = [[0.0] * m for _ in range(m)]
+            for i in range(m):
+                C_inv[i][i] = 1.0 / C_pair[i]
+        
+        # Build D (difference operator): D is m x n, (Du)_i = u_i - u_{i+1}
+        # Then compute K = D^T C^{-1} D directly
+        # K is n x n
+        K_cond = [[0.0] * n for _ in range(n)]
+        
+        # K[r][c] = sum over i,j of D^T[r][i] * C_inv[i][j] * D[j][c]
+        # D[i][c] = 1 if c==i, -1 if c==i+1, else 0
+        # D^T[r][i] = 1 if r==i, -1 if r==i+1, else 0
+        for r in range(n):
+            for c in range(n):
+                val = 0.0
+                for i in range(m):
+                    # D^T[r][i]: nonzero only if r==i or r==i+1
+                    if r == i:
+                        d_ti = 1.0
+                    elif r == i + 1:
+                        d_ti = -1.0
+                    else:
+                        d_ti = 0.0
+                    if d_ti == 0.0:
+                        continue
+                    
+                    for j in range(m):
+                        # D[j][c]: nonzero only if c==j or c==j+1
+                        if c == j:
+                            d_jc = 1.0
+                        elif c == j + 1:
+                            d_jc = -1.0
+                        else:
+                            d_jc = 0.0
+                        if d_jc == 0.0:
+                            continue
+                        
+                        val += d_ti * C_inv[i][j] * d_jc
+                
+                K_cond[r][c] = val
+        
+        # Store recovery data for bearing force calculation
+        self._condensed_recovery[row_index] = {
+            "plate_indices": plate_indices,
+            "C_inv": C_inv,
+            "C_bearing": C_bearing,
+            "n_plates": n
+        }
 
-        # --- 4. Add to Global Stitching ---
+        # --- 4. Add to Global Stiffness Matrix ---
         for r in range(n):
             for c in range(n):
                 k_eff = K_cond[r][c]
