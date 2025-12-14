@@ -768,31 +768,43 @@ class Joint1D:
         """
         Determine the effective topology for a fastener row, considering plate count.
         
-        Per Jarfall/Rutman: Boeing methods with 3+ plates should use boeing_beam
-        topology for proper shear+bending physics (Timoshenko+Jarfall formulation).
+        Routing rules for multi-layer joints (3+ plates):
         
-        For Boeing method:
-          - 2 layers: use existing Boeing formulation (star/chain)
-          - 3+ layers: automatically route to boeing_beam (Timoshenko+Jarfall)
-          - Explicit topology override is allowed (user takes responsibility)
+        1. Boeing methods: Route to boeing_beam (Timoshenko+Jarfall formulation)
+           for proper shear+bending physics per Jarfall/Rutman.
+           
+        2. Empirical chain: Route to empirical_star because chain topology 
+           models springs in series which gives incorrect load distribution 
+           for multi-layer joints. Star topology correctly couples all plates
+           through a central fastener DOF.
         """
         base_topo = self._fastener_topology(fastener)
         explicit_topology = (fastener.topology or "").strip().lower()
+        
+        # Count plates at this row
+        if fastener.connections:
+            n_plates = len(fastener.connections) + 1
+        else:
+            n_plates = len(self._plates_at_row(fastener.row))
         
         # Only auto-route for Boeing topologies that haven't explicitly chosen a topology
         is_boeing_default = base_topo in ("boeing_star_scaled", "boeing_star_raw")
         
         if is_boeing_default and not explicit_topology:
-            # Count plates in connections
-            if fastener.connections:
-                n_plates = len(fastener.connections) + 1
-            else:
-                # Count plates present at this row
-                n_plates = len(self._plates_at_row(fastener.row))
-            
             # Per Jarfall (1972): Use beam topology for 3+ plates
             if n_plates >= 3:
                 return "boeing_beam"
+        
+        # Option A: Auto-route empirical_chain to empirical_star for 3+ plates
+        # Chain topology models springs in series which gives wrong load distribution
+        if base_topo == "empirical_chain" and n_plates >= 3:
+            import warnings
+            warnings.warn(
+                f"Row {fastener.row}: empirical_chain topology is unsuitable for {n_plates}-layer joints. "
+                f"Auto-routing to empirical_star for correct load distribution.",
+                UserWarning
+            )
+            return "empirical_star"
         
         return base_topo
 
@@ -1643,28 +1655,48 @@ class Joint1D:
         springs: List[Tuple[int, int, float, int, int, float]],
         stiffness_matrix: List[List[float]],
     ) -> None:
-        """Assemble a chain using empirical (single-shear) pairwise compliances."""
+        """Assemble empirical chain topology with correct multi-layer handling.
+        
+        For 2-layer joints: Uses simple chain (Plate_A <-> Plate_B)
+        
+        For 3+ layer joints (Option B fix): Uses star architecture with branch
+        compliances derived from pairwise chain compliances. This correctly models
+        multi-layer physics where all plates share load through a single fastener.
+        """
         if not connection_pairs:
             return
 
         plate_lookup = {idx: plate for idx, plate in plates_at_row}
         ordered_plates = self._ordered_plate_indices(connection_pairs)
         row_index = fastener.row
-        stiffness_per_pair: List[float] = []
-
+        n_plates = len(ordered_plates)
+        
+        # Calculate pairwise compliances for all connections
+        pairwise_compliances: List[float] = []
         for idx_i, idx_j in connection_pairs:
             plate_i = plate_lookup[idx_i]
             plate_j = plate_lookup[idx_j]
             t_i = self._thickness_at_row(plate_i, row_index)
             t_j = self._thickness_at_row(plate_j, row_index)
-            comp = self._calculate_compliance_pairwise(plate_i, plate_j, fastener, t_i, t_j)
+            
+            # Single shear for each interface
+            comp = self._calculate_compliance_pairwise(plate_i, plate_j, fastener, t_i, t_j, shear_planes=1)
             if comp <= 0:
                 comp = 1e-12
-            k_pair = 1.0 / comp
-            stiffness_per_pair.append(k_pair)
-            self._interface_properties[(row_index, idx_i, idx_j)] = (comp, k_pair)
+            pairwise_compliances.append(comp)
+            self._interface_properties[(row_index, idx_i, idx_j)] = (comp, 1.0 / comp)
 
-        self._assemble_pairs_core(plate_lookup, row_index, connection_pairs, stiffness_per_pair, springs, stiffness_matrix)
+        # For 2-layer: Simple chain (direct plate-to-plate spring)
+        if n_plates == 2:
+            stiffness_per_pair = [1.0 / c for c in pairwise_compliances]
+            self._assemble_pairs_core(plate_lookup, row_index, connection_pairs, stiffness_per_pair, springs, stiffness_matrix)
+            return
+        
+        # For 3+ layer (Option B): Use star architecture with branch compliances
+        # This correctly models multi-layer physics - all plates connect to central fastener DOF
+        ordered_plate_objects = [plate_lookup[idx] for idx in ordered_plates]
+        branch_compliances = self._solve_branch_compliances(ordered_plate_objects, fastener, row_index, pairwise_compliances)
+        self._assemble_star_from_compliances(ordered_plates, plate_lookup, branch_compliances, fastener, springs, stiffness_matrix)
 
     def _ordered_plate_indices(self, connection_pairs: List[Tuple[int, int]]) -> List[int]:
         """Flatten connection pairs into a sorted list of unique plate indices."""
