@@ -7,7 +7,6 @@ from jolt import JointConfiguration, Plate, FastenerRow, case_5_3_elements_examp
 from jolt.units import UnitSystem, UnitConverter
 
 SUPPORTED_INPUT_MODES = ("Standard",)
-SUPPORTED_INPUT_METHODS = ("Standard", "Graphical")
 
 
 def normalize_input_mode(raw_value: Any) -> str:
@@ -19,20 +18,6 @@ def normalize_input_mode(raw_value: Any) -> str:
     """
 
     if isinstance(raw_value, str) and raw_value in SUPPORTED_INPUT_MODES:
-        return raw_value
-
-    return "Standard"
-
-
-def normalize_input_method(raw_value: Any) -> str:
-    """Normalize any stored/legacy method selector to a supported value.
-
-    The UI distinguishes between "Standard" (form-based) and "Graphical" (grid-based)
-    editors. Any unexpected/legacy value falls back to "Standard" so cached sessions
-    or bookmarks continue to work without errors.
-    """
-
-    if isinstance(raw_value, str) and raw_value in SUPPORTED_INPUT_METHODS:
         return raw_value
 
     return "Standard"

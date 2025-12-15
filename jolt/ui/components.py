@@ -12,12 +12,10 @@ from jolt.units import UnitSystem, UnitConverter
 from .utils import available_fastener_pairs
 from .state import (
     SUPPORTED_INPUT_MODES,
-    SUPPORTED_INPUT_METHODS,
     apply_configuration,
     clear_configuration_widget_state,
     convert_session_state,
     normalize_input_mode,
-    normalize_input_method,
     serialize_configuration,
     safe_load_model,
 )
@@ -75,44 +73,19 @@ def render_sidebar() -> Tuple[List[float], List[Plate], List[FastenerRow], List[
         )
         st.session_state.input_mode = normalize_input_mode(input_mode)
 
-        # Method selection (Standard vs Graphical)
-        forced_method = st.session_state.pop("_force_input_method", None)
-        if forced_method is not None:
-            st.session_state["input_method_selector"] = normalize_input_method(forced_method)
-        else:
-            legacy_method = st.session_state.get("input_method_selector", "Standard")
-            st.session_state["input_method_selector"] = normalize_input_method(legacy_method)
+        # Only Standard mode is supported going forward
+        _render_geometry_section(units)
+        pitches = st.session_state.pitches
 
-        method_index = SUPPORTED_INPUT_METHODS.index(st.session_state["input_method_selector"])
-        selected_method = st.selectbox(
-            "Method",
-            SUPPORTED_INPUT_METHODS,
-            index=method_index,
-            key="input_method_selector",
-            help="Graphical moves geometry editing into the Modeling tab.",
-        )
-        st.session_state.input_method = normalize_input_method(selected_method)
+        _render_plates_section(units)
+        plates = st.session_state.plates
 
-        # Geometry editing lives in the main area when Graphical is active.
-        if st.session_state.input_method == "Graphical":
-            st.info("Graphical method selected. Use the Modeling tab to edit geometry.")
-            pitches = st.session_state.pitches
-            plates = st.session_state.plates
-            fasteners = st.session_state.fasteners
-            supports = st.session_state.get("supports", [])
-        else:
-            _render_geometry_section(units)
-            pitches = st.session_state.pitches
+        _render_fasteners_section(units)
+        fasteners = st.session_state.fasteners
 
-            _render_plates_section(units)
-            plates = st.session_state.plates
-
-            _render_fasteners_section(units)
-            fasteners = st.session_state.fasteners
-
-            # Supports
-            # We pass the *current* pitches and plates to supports section so it can validate indices
-            supports = _render_supports_section(pitches, plates, units)
+        # Supports
+        # We pass the *current* pitches and plates to supports section so it can validate indices
+        supports = _render_supports_section(pitches, plates, units)
         
         # Point forces
         point_forces = {}
