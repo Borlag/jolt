@@ -6,6 +6,22 @@ import streamlit as st
 from jolt import JointConfiguration, Plate, FastenerRow, case_5_3_elements_example, JointSolution
 from jolt.units import UnitSystem, UnitConverter
 
+SUPPORTED_INPUT_MODES = ("Standard",)
+
+
+def normalize_input_mode(raw_value: Any) -> str:
+    """Normalize any stored/legacy input mode to a supported value.
+
+    The UI historically exposed "Standard", "Refined Row", and "Node-based" editors.
+    Upcoming releases only support the Standard path. Any unknown or legacy value is
+    coerced to "Standard" to keep old sessions or bookmarks from crashing.
+    """
+
+    if isinstance(raw_value, str) and raw_value in SUPPORTED_INPUT_MODES:
+        return raw_value
+
+    return "Standard"
+
 
 def clear_configuration_widget_state() -> None:
     """Remove cached widget values that conflict with a newly loaded model."""
