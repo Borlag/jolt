@@ -14,7 +14,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import pandas as pd
+try:
+    import pandas as pd
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
+    pd = None
 
 try:
     import xlsxwriter
@@ -27,6 +32,15 @@ try:
     HAS_PLOTLY = True
 except ImportError:
     HAS_PLOTLY = False
+
+try:
+    from jolt.visualization_plotly import render_joint_diagram_plotly
+    from jolt.config import JointConfiguration
+    HAS_VISUALIZATION = True
+except ImportError:
+    HAS_VISUALIZATION = False
+    render_joint_diagram_plotly = None
+    JointConfiguration = None
 
 from .comparator import (
     ModelComparison, 
@@ -73,6 +87,7 @@ class VerificationReporter:
         comparison: ModelComparison,
         solver_result: SolverResults,
         reference_data: Dict[str, Any],
+        config_data: Optional[Dict[str, Any]] = None,
     ):
         """
         Add a model comparison to the report.
@@ -81,8 +96,9 @@ class VerificationReporter:
             comparison: ModelComparison results
             solver_result: Solver output data
             reference_data: Reference data for this formula
+            config_data: Optional model configuration data for visualizations
         """
-        self.comparisons.append((comparison, solver_result, reference_data))
+        self.comparisons.append((comparison, solver_result, reference_data, config_data))
         
     def generate(self, output_path: Optional[str] = None) -> bytes:
         """
@@ -107,8 +123,8 @@ class VerificationReporter:
         self._write_summary_sheet(workbook, formats)
         
         # Generate sheet for each model/formula combination
-        for comparison, solver_result, reference_data in self.comparisons:
-            self._write_model_sheet(workbook, formats, comparison, solver_result, reference_data)
+        for comparison, solver_result, reference_data, config_data in self.comparisons:
+            self._write_model_sheet(workbook, formats, comparison, solver_result, reference_data, config_data)
             
         workbook.close()
         output.seek(0)
@@ -178,6 +194,18 @@ class VerificationReporter:
             "text": workbook.add_format({'border': 1, 'align': 'left'}),
             "text_center": workbook.add_format({'border': 1, 'align': 'center'}),
             "text_bold": workbook.add_format({'bold': True, 'border': 1}),
+            
+            # Excluded entries (footnote styling)
+            "excluded": workbook.add_format({
+                'num_format': '0.00"%"', 'border': 1,
+                'bg_color': '#E0E0E0', 'font_color': '#666666', 'italic': True
+            }),
+            "excluded_text": workbook.add_format({
+                'border': 1, 'bg_color': '#E0E0E0', 'font_color': '#666666', 'italic': True
+            }),
+            "footnote": workbook.add_format({
+                'italic': True, 'font_color': '#666666', 'font_size': 10
+            }),
         }
         
     def _write_summary_sheet(self, workbook, formats: Dict):
@@ -198,7 +226,7 @@ class VerificationReporter:
             ws.write(row, col, header, formats["header"])
             
         row += 1
-        for comparison, solver_result, _ in self.comparisons:
+        for comparison, solver_result, _, _ in self.comparisons:
             ws.write(row, 0, comparison.model_id, formats["text"])
             ws.write(row, 1, comparison.formula, formats["text_center"])
             
@@ -232,6 +260,7 @@ class VerificationReporter:
         comparison: ModelComparison,
         solver_result: SolverResults,
         reference_data: Dict,
+        config_data: Optional[Dict[str, Any]] = None,
     ):
         """Write a sheet for a single model/formula comparison."""
         # Sanitize sheet name
@@ -254,6 +283,13 @@ class VerificationReporter:
         ws.write(2, 2, f"Max Rel Error: {comparison.overall_max_rel_error:.3f}%")
         
         curr_row = 5
+        
+        # Write model diagrams (scheme, loads, displacements) if visualization available
+        if HAS_VISUALIZATION and config_data:
+            curr_row = self._write_model_diagrams(
+                ws, formats, curr_row, config_data, solver_result
+            )
+            curr_row += 2
         
         # Write each category comparison
         for category_name in ["fasteners", "nodes", "plates", "loads"]:
@@ -296,29 +332,46 @@ class VerificationReporter:
         row = start_row + 1
         
         # Build comparison data table
-        # Headers: Key | Field | Model | Reference | Abs Error | Rel Error (%)
-        headers = ["Element", "Field", "Model Value", "Reference", "Abs Error", "Rel Error (%)"]
+        # Headers: Key | Field | Model | Reference | Abs Error | Rel Error (%) | Note
+        headers = ["Element", "Field", "Model Value", "Reference", "Abs Error", "Rel Error (%)", "Note"]
         for col, header in enumerate(headers):
             ws.write(row, col, header, formats["header"])
         row += 1
         
+        # Track if we have any excluded items for footnote
+        has_exclusions = False
+        
         # Write data for each field
         for field_name, field_comp in category.fields.items():
+            excluded_set = set(field_comp.excluded_indices)
+            
             for i, key in enumerate(category.element_keys):
                 if i >= len(field_comp.model_values):
                     continue
-                    
-                ws.write(row, 0, key, formats["text"])
-                ws.write(row, 1, field_name, formats["text"])
-                ws.write(row, 2, field_comp.model_values[i], formats["num_3dec"])
-                ws.write(row, 3, field_comp.ref_values[i], formats["num_3dec"])
-                ws.write(row, 4, field_comp.abs_errors[i], formats["num_3dec"])
+                
+                is_excluded = i in excluded_set
+                if is_excluded:
+                    has_exclusions = True
+                
+                # Element key with marker if excluded
+                elem_text = f"{key} †" if is_excluded else key
+                text_fmt = formats["excluded_text"] if is_excluded else formats["text"]
+                num_fmt = formats["excluded_text"] if is_excluded else formats["num_3dec"]
+                
+                ws.write(row, 0, elem_text, text_fmt)
+                ws.write(row, 1, field_name, text_fmt)
+                ws.write(row, 2, field_comp.model_values[i], num_fmt)
+                ws.write(row, 3, field_comp.ref_values[i], num_fmt)
+                ws.write(row, 4, field_comp.abs_errors[i], num_fmt)
                 
                 # Color-code relative error
-                # Always show 100% errors as red (critical threshold)
                 rel_err = field_comp.rel_errors[i]
                 tolerance = get_tolerance(field_name)
-                if rel_err >= 99.0:  # Critical threshold - always red
+                
+                if is_excluded:
+                    # Excluded entries use gray styling
+                    fmt = formats["excluded"]
+                elif rel_err >= 99.0:  # Critical threshold - always red
                     fmt = formats["error_bad"]
                 elif rel_err <= tolerance * 0.5:
                     fmt = formats["error_good"]
@@ -328,7 +381,22 @@ class VerificationReporter:
                     fmt = formats["error_bad"]
                 ws.write(row, 5, rel_err, fmt)
                 
+                # Note column
+                if is_excluded:
+                    # Get the reason from excluded_reasons if available
+                    reason_idx = field_comp.excluded_indices.index(i) if i in field_comp.excluded_indices else -1
+                    reason = field_comp.excluded_reasons[reason_idx] if reason_idx >= 0 and reason_idx < len(field_comp.excluded_reasons) else "Excluded"
+                    ws.write(row, 6, reason, formats["excluded_text"])
+                else:
+                    ws.write(row, 6, "", formats["text"])
+                
                 row += 1
+        
+        # Footnote for excluded items
+        if has_exclusions:
+            row += 1
+            ws.write(row, 0, "† Excluded from scoring (does not affect pass/fail result)", formats["footnote"])
+            row += 1
                 
         # Summary row
         row += 1
@@ -365,6 +433,7 @@ class VerificationReporter:
         ws.set_column(0, 0, 25)
         ws.set_column(1, 1, 15)
         ws.set_column(2, 5, 15)
+        ws.set_column(6, 6, 25)  # Note column
         
         return row
         
@@ -472,6 +541,78 @@ class VerificationReporter:
         except Exception as e:
             ws.write(row, col, f"Error generating chart: {e}")
             return row + 2
+    
+    def _write_model_diagrams(
+        self,
+        ws,
+        formats: Dict,
+        start_row: int,
+        config_data: Dict[str, Any],
+        solver_result: SolverResults,
+    ) -> int:
+        """
+        Write model diagrams (scheme, loads, displacements) to the worksheet.
+        
+        Args:
+            ws: Worksheet to write to
+            formats: Format dict
+            start_row: Starting row
+            config_data: Model configuration data
+            solver_result: Solver results with solution
+            
+        Returns:
+            Next available row
+        """
+        if not HAS_VISUALIZATION or not render_joint_diagram_plotly:
+            return start_row
+            
+        try:
+            # Build configuration from config data
+            config = JointConfiguration.from_dict(config_data)
+            
+            # Use the solution from solver_result
+            solution = solver_result.solution
+            
+            # Units for labels
+            units = {
+                "force": "lb",
+                "stiffness": "lb/in", 
+                "displacement": "in",
+                "stress": "psi",
+                "length": "in",
+            }
+            
+            row = start_row
+            
+            # Write section header
+            ws.merge_range(row, 0, row, 10, "Model Diagrams", formats["header_main"])
+            row += 2
+            
+            # Generate only scheme diagram (loads/displacements have overlapping annotations)
+            modes = [
+                ("scheme", "Scheme Overview"),
+            ]
+            
+            for mode, caption in modes:
+                fig = render_joint_diagram_plotly(
+                    pitches=config.pitches,
+                    plates=config.plates,
+                    fasteners=config.fasteners,
+                    supports=config.supports,
+                    solution=solution,
+                    units=units,
+                    mode=mode,
+                    font_size=10,
+                )
+                
+                if fig:
+                    row = self._insert_chart(ws, row, 0, caption, fig)
+                    
+            return row
+            
+        except Exception as e:
+            ws.write(start_row, 0, f"Error generating diagrams: {e}")
+            return start_row + 2
 
 
 def generate_markdown_summary(comparisons: List[ModelComparison]) -> str:

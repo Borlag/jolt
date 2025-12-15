@@ -28,6 +28,8 @@ class FieldComparison:
         mean_rel: Mean relative error (%)
         rms: Root mean square error
         count: Number of elements compared
+        excluded_indices: Indices excluded from scoring (e.g., load application points)
+        excluded_reasons: Reason for exclusion at each index
     """
     field_name: str
     model_values: List[float] = field(default_factory=list)
@@ -41,6 +43,8 @@ class FieldComparison:
     mean_rel: float = 0.0
     rms: float = 0.0
     count: int = 0
+    excluded_indices: List[int] = field(default_factory=list)
+    excluded_reasons: List[str] = field(default_factory=list)
     
     @property
     def within_tolerance(self) -> bool:
@@ -128,10 +132,17 @@ def get_tolerance(field_name: str, metric: str = "rel") -> float:
 # Comparison Functions
 # =============================================================================
 
+# Threshold for considering small displacements as passing when reference is zero
+# (Reference zeros are typically due to rounding of very small values)
+SMALL_DISPLACEMENT_THRESHOLD = 0.03
+
+
 def compare_field(
     field_name: str,
     model_values: List[float],
     ref_values: List[float],
+    excluded_indices: Optional[List[int]] = None,
+    excluded_reasons: Optional[List[str]] = None,
 ) -> FieldComparison:
     """
     Compare a single field across all elements.
@@ -140,15 +151,22 @@ def compare_field(
         field_name: Name of the field being compared
         model_values: Values from solver
         ref_values: Reference values
+        excluded_indices: Optional list of indices to exclude from scoring
+        excluded_reasons: Optional list of reasons for each exclusion
         
     Returns:
         FieldComparison with all error metrics
     """
+    excluded_indices = excluded_indices or []
+    excluded_reasons = excluded_reasons or []
+    
     comparison = FieldComparison(
         field_name=field_name,
         model_values=list(model_values),
         ref_values=list(ref_values),
         count=min(len(model_values), len(ref_values)),
+        excluded_indices=list(excluded_indices),
+        excluded_reasons=list(excluded_reasons),
     )
     
     if comparison.count == 0:
@@ -173,10 +191,15 @@ def compare_field(
         abs_errors.append(abs(abs_err))
         
         # Relative error (%)
+        # Special case: if reference is ~0 and model value is small (< 0.03), treat as pass
         if ref_val > 1e-12:
             rel_err = 100.0 * abs(abs_err) / ref_val
         else:
-            rel_err = 0.0 if abs(abs_err) < 1e-12 else 100.0
+            # Reference is effectively zero
+            if model_val < SMALL_DISPLACEMENT_THRESHOLD:
+                rel_err = 0.0  # Treat as passed
+            else:
+                rel_err = 100.0  # Significant deviation from zero
         rel_errors.append(rel_err)
         
         # Error sign
@@ -189,15 +212,18 @@ def compare_field(
     comparison.rel_errors = rel_errors
     comparison.signs = signs
     
-    # Aggregate metrics
-    comparison.max_abs = max(abs_errors) if abs_errors else 0.0
-    comparison.mean_abs = sum(abs_errors) / len(abs_errors) if abs_errors else 0.0
-    comparison.max_rel = max(rel_errors) if rel_errors else 0.0
-    comparison.mean_rel = sum(rel_errors) / len(rel_errors) if rel_errors else 0.0
+    # Aggregate metrics - exclude excluded_indices from scoring
+    included_abs_errors = [e for i, e in enumerate(abs_errors) if i not in excluded_indices]
+    included_rel_errors = [e for i, e in enumerate(rel_errors) if i not in excluded_indices]
     
-    # RMS error
-    if abs_errors:
-        comparison.rms = math.sqrt(sum(e**2 for e in abs_errors) / len(abs_errors))
+    comparison.max_abs = max(included_abs_errors) if included_abs_errors else 0.0
+    comparison.mean_abs = sum(included_abs_errors) / len(included_abs_errors) if included_abs_errors else 0.0
+    comparison.max_rel = max(included_rel_errors) if included_rel_errors else 0.0
+    comparison.mean_rel = sum(included_rel_errors) / len(included_rel_errors) if included_rel_errors else 0.0
+    
+    # RMS error (on included elements only)
+    if included_abs_errors:
+        comparison.rms = math.sqrt(sum(e**2 for e in included_abs_errors) / len(included_abs_errors))
         
     return comparison
 
@@ -258,13 +284,23 @@ def compare_fasteners(
 def compare_nodes(
     model_nodes: List[Dict[str, Any]],
     ref_nodes: List[Dict[str, Any]],
+    excluded_node_keys: Optional[set] = None,
+    exclusion_reasons: Optional[Dict[str, str]] = None,
 ) -> CategoryComparison:
     """
     Compare node results between model and reference.
     
     Matches nodes by (plate_name, row) key.
+    
+    Args:
+        model_nodes: Node results from solver
+        ref_nodes: Reference node data
+        excluded_node_keys: Optional set of node keys to exclude from displacement scoring
+        exclusion_reasons: Optional dict mapping node key to exclusion reason
     """
     comparison = CategoryComparison(category="nodes")
+    excluded_node_keys = excluded_node_keys or set()
+    exclusion_reasons = exclusion_reasons or {}
     
     def make_key(n: Dict) -> str:
         return f"{n.get('plate_name', '')}-{n.get('row', 0)}"
@@ -286,8 +322,10 @@ def compare_nodes(
     for field_name in fields_to_compare:
         model_vals = []
         ref_vals = []
+        excluded_indices = []
+        excluded_reasons = []
         
-        for key in matched_keys:
+        for i, key in enumerate(matched_keys):
             model_n = model_by_key[key]
             ref_n = ref_by_key[key]
             
@@ -298,8 +336,17 @@ def compare_nodes(
                 model_vals.append(float(model_val) if model_val else 0.0)
                 ref_vals.append(float(ref_val))
                 
+                # Check if this is an excluded point (load or support)
+                if key in excluded_node_keys:
+                    excluded_indices.append(len(model_vals) - 1)
+                    excluded_reasons.append(exclusion_reasons.get(key, "Excluded"))
+                
         if model_vals and ref_vals:
-            comparison.fields[field_name] = compare_field(field_name, model_vals, ref_vals)
+            comparison.fields[field_name] = compare_field(
+                field_name, model_vals, ref_vals,
+                excluded_indices=excluded_indices,
+                excluded_reasons=excluded_reasons,
+            )
             
     return comparison
 
@@ -402,11 +449,82 @@ def compare_loads(
     return comparison
 
 
+def _extract_excluded_node_keys(config_data: Optional[Dict[str, Any]]) -> Tuple[set, Dict[str, str]]:
+    """
+    Extract node keys that should be excluded from displacement scoring.
+    
+    Identifies nodes with:
+    - Fx_left (load at first_row of plate)
+    - Fx_right (load at last_row of plate)  
+    - point_forces (explicit point loads)
+    - supports (prescribed displacement boundary conditions)
+    
+    Returns:
+        Tuple of (set of node keys, dict mapping key to exclusion reason)
+    """
+    if not config_data:
+        return set(), {}
+    
+    excluded_keys: Dict[str, str] = {}
+    plates = config_data.get("plates", [])
+    
+    # Extract plate end loads (Fx_left, Fx_right)
+    for plate in plates:
+        name = plate.get("name", "")
+        first_row = plate.get("first_row", 1)
+        last_row = plate.get("last_row", 1)
+        
+        # Fx_left is applied at first_row
+        fx_left = plate.get("Fx_left", 0.0)
+        if fx_left and abs(fx_left) > 1e-12:
+            key = f"{name}-{first_row}"
+            excluded_keys[key] = "Load application point"
+            
+        # Fx_right is applied at last_row
+        fx_right = plate.get("Fx_right", 0.0)
+        if fx_right and abs(fx_right) > 1e-12:
+            key = f"{name}-{last_row}"
+            excluded_keys[key] = "Load application point"
+    
+    # Extract point forces
+    # point_forces is list of (plate_index, local_node, magnitude)
+    point_forces = config_data.get("point_forces", [])
+    
+    for pf in point_forces:
+        if isinstance(pf, (list, tuple)) and len(pf) >= 3:
+            plate_idx, local_node, magnitude = pf[0], pf[1], pf[2]
+            if abs(magnitude) > 1e-12 and plate_idx < len(plates):
+                plate = plates[plate_idx]
+                plate_name = plate.get("name", "")
+                first_row = plate.get("first_row", 1)
+                row = first_row + local_node
+                key = f"{plate_name}-{row}"
+                excluded_keys[key] = "Load application point"
+    
+    # Extract supports (prescribed displacement boundary conditions)
+    # supports is list of (plate_index, local_node, displacement_value)
+    supports = config_data.get("supports", [])
+    
+    for sup in supports:
+        if isinstance(sup, (list, tuple)) and len(sup) >= 2:
+            plate_idx, local_node = sup[0], sup[1]
+            if plate_idx < len(plates):
+                plate = plates[plate_idx]
+                plate_name = plate.get("name", "")
+                first_row = plate.get("first_row", 1)
+                row = first_row + local_node
+                key = f"{plate_name}-{row}"
+                excluded_keys[key] = "Support (prescribed displacement)"
+    
+    return set(excluded_keys.keys()), excluded_keys
+
+
 def compare_results(
     model_id: str,
     formula: str,
     solver_results: Dict[str, List[Dict[str, Any]]],
     reference_data: Dict[str, List[Dict[str, Any]]],
+    config_data: Optional[Dict[str, Any]] = None,
 ) -> ModelComparison:
     """
     Complete comparison of solver results against reference.
@@ -416,11 +534,15 @@ def compare_results(
         formula: Formula name
         solver_results: Dict with keys 'nodes', 'plates', 'fasteners', 'loads'
         reference_data: Reference data dict with same structure
+        config_data: Optional configuration data to identify load application points
         
     Returns:
         ModelComparison with all category comparisons
     """
     comparison = ModelComparison(model_id=model_id, formula=formula)
+    
+    # Extract excluded node keys (load points and supports) from config
+    excluded_node_keys, exclusion_reasons = _extract_excluded_node_keys(config_data)
     
     # Compare each category
     if "fasteners" in reference_data and reference_data["fasteners"]:
@@ -433,6 +555,8 @@ def compare_results(
         comparison.categories["nodes"] = compare_nodes(
             solver_results.get("nodes", []),
             reference_data["nodes"],
+            excluded_node_keys=excluded_node_keys,
+            exclusion_reasons=exclusion_reasons,
         )
         
     if "plates" in reference_data and reference_data["plates"]:

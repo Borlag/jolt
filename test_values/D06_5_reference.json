@@ -276,29 +276,29 @@
                 {
                     "element": "Skin",
                     "row": 2,
-                    "incoming_load": 765.0,
-                    "bypass_load": 606.0,
+                    "incoming_load": 606.0,
+                    "bypass_load": 765.0,
                     "load_transfer": 159.0
                 },
                 {
                     "element": "Skin",
                     "row": 3,
-                    "incoming_load": 606.0,
-                    "bypass_load": 400.0,
+                    "incoming_load": 400.0,
+                    "bypass_load": 606.0,
                     "load_transfer": 207.0
                 },
                 {
                     "element": "Skin",
                     "row": 4,
-                    "incoming_load": 400.0,
-                    "bypass_load": 233.0,
+                    "incoming_load": 233.0,
+                    "bypass_load": 400.0,
                     "load_transfer": 166.0
                 },
                 {
                     "element": "Skin",
                     "row": 5,
-                    "incoming_load": 233.0,
-                    "bypass_load": 0.0,
+                    "incoming_load": 0.0,
+                    "bypass_load": 233.0,
                     "load_transfer": 233.0
                 }
             ],

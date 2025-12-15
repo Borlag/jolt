@@ -117,10 +117,11 @@ def run_verification(
                     "loads": solver_result.loads,
                 },
                 reference_data=ref_data,
+                config_data=case.config_data,
             )
             
             comparisons.append(comparison)
-            reporter.add_model_comparison(comparison, solver_result, ref_data)
+            reporter.add_model_comparison(comparison, solver_result, ref_data, config_data=case.config_data)
             
             if verbose:
                 status = "PASS" if comparison.overall_pass else "FAIL"

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Dict, List, Sequence, Tuple, Optional
+from typing import Dict, List, Sequence, Set, Tuple, Optional
 
 try:
     import plotly.graph_objects as go  # type: ignore
@@ -19,6 +19,53 @@ from jolt import (
 )
 
 
+# ---- Inline utilities to avoid jolt.ui streamlit dependency ----
+
+def _plates_present_at_row(plates: Sequence[Plate], row_index: int) -> List[int]:
+    """Find which plate indices are present at a given row."""
+    present = [
+        idx
+        for idx, plate in enumerate(plates)
+        if plate.first_row <= row_index <= plate.last_row
+    ]
+    present.sort()
+    return present
+
+
+def _resolve_fastener_connections(
+    fastener: FastenerRow, plates: Sequence[Plate]
+) -> List[Tuple[int, int]]:
+    """Resolve which plate pairs a fastener connects at its row."""
+    row_index = int(fastener.row)
+    present = _plates_present_at_row(plates, row_index)
+    if len(present) < 2:
+        return []
+    if fastener.connections is None:
+        return list(zip(present[:-1], present[1:]))
+
+    order = {plate_idx: position for position, plate_idx in enumerate(present)}
+    resolved: List[Tuple[int, int]] = []
+    seen: Set[Tuple[int, int]] = set()
+
+    for pair in fastener.connections:
+        if len(pair) != 2:
+            continue
+        raw_top, raw_bottom = int(pair[0]), int(pair[1])
+        if raw_top not in order or raw_bottom not in order:
+            continue
+        top_idx, bottom_idx = (raw_top, raw_bottom)
+        if order[top_idx] > order[bottom_idx]:
+            top_idx, bottom_idx = bottom_idx, top_idx
+        if abs(order[top_idx] - order[bottom_idx]) != 1:
+            continue
+        key = (top_idx, bottom_idx)
+        if key in seen:
+            continue
+        seen.add(key)
+        resolved.append(key)
+
+    return resolved
+
 
 def render_joint_diagram_plotly(
     pitches: Sequence[float],
@@ -30,7 +77,6 @@ def render_joint_diagram_plotly(
     mode: str = "scheme",
     font_size: int = 10,
 ) -> Optional[go.Figure]:
-    from jolt.ui.utils import resolve_fastener_connections
     if go is None:
         return None
 
@@ -217,7 +263,7 @@ def render_joint_diagram_plotly(
                 if coord is not None:
                     attachments[plate_idx] = coord
         
-        pairs = resolve_fastener_connections(fastener, plates)
+        pairs = _resolve_fastener_connections(fastener, plates)
         used_coords: List[Tuple[float, float]] = []
         
         # Determine Label
