@@ -2,15 +2,23 @@
 from dataclasses import replace
 from typing import List, Set, Tuple, Dict, Any
 import streamlit as st
-import pandas as pd
 import json
 import hashlib
 import math
+import pandas as pd
 
 from jolt import Plate, FastenerRow, JointSolution, JointConfiguration
 from jolt.units import UnitSystem, UnitConverter
 from .utils import available_fastener_pairs
-from .state import apply_configuration, clear_configuration_widget_state, serialize_configuration, convert_session_state, safe_load_model
+from .state import (
+    SUPPORTED_INPUT_MODES,
+    apply_configuration,
+    clear_configuration_widget_state,
+    convert_session_state,
+    normalize_input_mode,
+    serialize_configuration,
+    safe_load_model,
+)
 
 _UPLOAD_DIGEST_KEY = "_cfg_upload_digest"
 _TOPOLOGY_OPTIONS = [
@@ -49,49 +57,31 @@ def render_sidebar() -> Tuple[List[float], List[Plate], List[FastenerRow], List[
         units = UnitConverter.get_labels(current_units)
 
         # Mode Selection
-        # Check if we need to force a specific mode (e.g. after loading)
         forced_mode = st.session_state.pop("_force_input_mode", None)
-        if forced_mode:
-            st.session_state["input_mode_selector"] = forced_mode
-            
+        if forced_mode is not None:
+            st.session_state["input_mode_selector"] = normalize_input_mode(forced_mode)
+        else:
+            # Normalize any legacy/cached value from older sessions
+            legacy_value = st.session_state.get("input_mode_selector", "Standard")
+            st.session_state["input_mode_selector"] = normalize_input_mode(legacy_value)
+
         input_mode = st.selectbox(
             "Input Mode",
-            ["Standard", "Refined Row", "Node-based"],
+            SUPPORTED_INPUT_MODES,
             index=0,
-            key="input_mode_selector"
+            key="input_mode_selector",
         )
-        st.session_state.input_mode = input_mode
+        st.session_state.input_mode = normalize_input_mode(input_mode)
 
-        # --- Standard / Refined Mode ---
-        if input_mode in ["Standard", "Refined Row"]:
-            _render_geometry_section(units)
-            pitches = st.session_state.pitches
-            
-            extra_nodes = []
-            if input_mode == "Refined Row":
-                with st.expander("Extra Nodes (Refined)", expanded=True):
-                    st.markdown("Add intermediate nodes at specific X coordinates.")
-                    extra_nodes_str = st.text_area("X Coordinates (comma-separated)", value="", help="e.g., 1.5, 3.2")
-                    if extra_nodes_str:
-                        try:
-                            extra_nodes = [float(x.strip()) for x in extra_nodes_str.split(",") if x.strip()]
-                        except ValueError:
-                            st.error("Invalid coordinates")
-                st.session_state.extra_nodes = extra_nodes
+        # Only Standard mode is supported going forward
+        _render_geometry_section(units)
+        pitches = st.session_state.pitches
 
-            _render_plates_section(units)
-            plates = st.session_state.plates
-            
-            _render_fasteners_section(units)
-            fasteners = st.session_state.fasteners
-            
-            if input_mode == "Refined Row" and extra_nodes:
-                from jolt.inputs import process_refined_rows
-                pitches, plates, fasteners = process_refined_rows(pitches, plates, fasteners, extra_nodes)
+        _render_plates_section(units)
+        plates = st.session_state.plates
 
-        # --- Node-based Mode ---
-        else:
-            pitches, plates, fasteners = _render_node_based_inputs(units)
+        _render_fasteners_section(units)
+        fasteners = st.session_state.fasteners
 
         # Supports
         # We pass the *current* pitches and plates to supports section so it can validate indices
@@ -105,182 +95,6 @@ def render_sidebar() -> Tuple[List[float], List[Plate], List[FastenerRow], List[
 
     return pitches, plates, fasteners, supports, point_forces, units
 
-
-def _render_node_based_inputs(units: Dict[str, str]) -> Tuple[List[float], List[Plate], List[FastenerRow]]:
-    st.subheader("Nodes")
-    # Initialize or migrate to DataFrame
-    if "node_table" not in st.session_state:
-        st.session_state.node_table = pd.DataFrame([{"id": 0, "x": 0.0}, {"id": 1, "x": 10.0}])
-    elif isinstance(st.session_state.node_table, list):
-        st.session_state.node_table = pd.DataFrame(st.session_state.node_table)
-    
-    # Ensure columns exist if empty
-    if st.session_state.node_table.empty and "id" not in st.session_state.node_table.columns:
-        st.session_state.node_table = pd.DataFrame(columns=["id", "x"])
-    
-    node_df = st.data_editor(
-        st.session_state.node_table,
-        num_rows="dynamic",
-        column_config={
-            "id": st.column_config.NumberColumn("Node ID", step=1, required=True),
-            "x": st.column_config.NumberColumn(f"X [{units['length']}]", required=True, format="%.3f"),
-        },
-        key="node_editor",
-        hide_index=True,
-    )
-    st.session_state.node_table = node_df
-    
-    # Parse using to_dict("records") to handle DataFrame
-    nodes_dict = {row["id"]: row["x"] for row in node_df.to_dict("records")}
-
-    st.subheader("Elements")
-    if "element_table" not in st.session_state:
-        st.session_state.element_table = pd.DataFrame([
-            {"layer": "Skin", "start": 0, "end": 1, "E": 1e7, "t": 0.1, "w": 1.0}
-        ])
-    elif isinstance(st.session_state.element_table, list):
-        st.session_state.element_table = pd.DataFrame(st.session_state.element_table)
-        
-    if st.session_state.element_table.empty and "layer" not in st.session_state.element_table.columns:
-        st.session_state.element_table = pd.DataFrame(columns=["layer", "start", "end", "E", "t", "w"])
-        
-    elem_df = st.data_editor(
-        st.session_state.element_table,
-        num_rows="dynamic",
-        column_config={
-            "layer": st.column_config.TextColumn("Layer Name", required=True),
-            "start": st.column_config.NumberColumn("Start Node", step=1, required=True),
-            "end": st.column_config.NumberColumn("End Node", step=1, required=True),
-            "E": st.column_config.NumberColumn(f"Modulus [{units['stress']}]", default=1e7),
-            "t": st.column_config.NumberColumn(f"Thickness [{units['length']}]", default=0.1),
-            "w": st.column_config.NumberColumn(f"Width [{units['length']}]", default=1.0),
-        },
-        key="element_editor",
-        hide_index=True,
-    )
-    st.session_state.element_table = elem_df
-    
-    elements = []
-    missing_nodes = set()
-    for row in elem_df.to_dict("records"):
-        start_n = row["start"]
-        end_n = row["end"]
-        if start_n not in nodes_dict:
-            missing_nodes.add(start_n)
-        if end_n not in nodes_dict:
-            missing_nodes.add(end_n)
-            
-        elements.append({
-            "layer_name": row["layer"],
-            "start_node": start_n,
-            "end_node": end_n,
-            "E": row["E"],
-            "t": row["t"],
-            "width": row["w"]
-        })
-
-    if missing_nodes:
-        st.error(f"The following nodes are used in Elements but not defined in Nodes: {sorted(list(missing_nodes))}")
-
-    st.subheader("Fasteners")
-    if "fastener_table_nb" not in st.session_state:
-        st.session_state.fastener_table_nb = pd.DataFrame(columns=["node", "d", "layers", "E", "v", "method", "topology"])
-    elif isinstance(st.session_state.fastener_table_nb, list):
-        st.session_state.fastener_table_nb = pd.DataFrame(st.session_state.fastener_table_nb)
-
-    # Ensure columns exist
-    required_cols = ["node", "d", "layers", "E", "v", "method", "topology"]
-    for col in required_cols:
-        if col not in st.session_state.fastener_table_nb.columns:
-            if col == "E":
-                st.session_state.fastener_table_nb[col] = 1e7
-            elif col == "v":
-                st.session_state.fastener_table_nb[col] = 0.3
-            elif col == "method":
-                st.session_state.fastener_table_nb[col] = "boeing"
-            elif col == "topology":
-                st.session_state.fastener_table_nb[col] = ""
-            else:
-                # Should not happen for node/d/layers if table was created before, but safe default
-                st.session_state.fastener_table_nb[col] = None
-
-    fast_df = st.data_editor(
-        st.session_state.fastener_table_nb,
-        num_rows="dynamic",
-        column_config={
-            "node": st.column_config.NumberColumn("Node ID", step=1, required=True),
-            "d": st.column_config.NumberColumn(f"Diameter [{units['length']}]", default=0.19),
-            "layers": st.column_config.TextColumn("Layers (comma-sep)", help="e.g. Skin, Doubler"),
-            "E": st.column_config.NumberColumn(f"Modulus [{units['stress']}]", default=1e7),
-            "v": st.column_config.NumberColumn("Poisson Ratio", default=0.3),
-            "method": st.column_config.SelectboxColumn(
-                "Method",
-                options=["boeing", "huth", "grumman"],
-                default="boeing",
-                required=True
-            ),
-            "topology": st.column_config.SelectboxColumn(
-                "Topology",
-                options=[opt[1] for opt in _TOPOLOGY_OPTIONS],
-                default="",
-                help="Leave blank to let the method choose; otherwise pick a chain/star variant."
-            ),
-        },
-        key="fastener_editor_nb",
-        hide_index=True,
-    )
-    st.session_state.fastener_table_nb = fast_df
-    
-    fasteners_in = []
-    fastener_warnings = []
-    
-    # Collect available layers per node for validation
-    node_layers: Dict[int, Set[str]] = {}
-    for el in elements:
-        start, end = el["start_node"], el["end_node"]
-        layer = el["layer_name"]
-        if start not in node_layers: node_layers[start] = set()
-        if end not in node_layers: node_layers[end] = set()
-        node_layers[start].add(layer)
-        node_layers[end].add(layer)
-
-    for row_idx, row in enumerate(fast_df.to_dict("records")):
-        node_id = row["node"]
-        layers_str = str(row.get("layers", ""))
-        # Support both comma and semicolon
-        layers_str = layers_str.replace(";", ",")
-        layers = [x.strip() for x in layers_str.split(",") if x.strip()]
-        
-        if node_id not in nodes_dict:
-            fastener_warnings.append(f"Row {row_idx+1}: Node {node_id} not defined.")
-            continue
-            
-        if len(layers) < 2:
-            fastener_warnings.append(f"Row {row_idx+1}: Fastener at Node {node_id} must connect at least 2 layers (found {len(layers)}: {layers}).")
-            continue
-            
-        # Check if layers exist at this node
-        available = node_layers.get(node_id, set())
-        missing_layers = [l for l in layers if l not in available]
-        if missing_layers:
-            fastener_warnings.append(f"Row {row_idx+1}: Layers {missing_layers} not found at Node {node_id}. Available: {sorted(list(available))}")
-            
-        fasteners_in.append({
-            "node_id": node_id,
-            "diameter": row["d"],
-            "connected_layers": layers,
-            "E": row.get("E", 1e7),
-            "v": row.get("v", 0.3),
-            "method": row.get("method", "boeing69"),
-            "topology": row.get("topology", ""),
-        })
-
-    if fastener_warnings:
-        for warn in fastener_warnings:
-            st.warning(warn)
-
-    from jolt.inputs import process_node_based
-    return process_node_based(nodes_dict, elements, fasteners_in)
 
 
 def _render_geometry_section(units: Dict[str, str]):
